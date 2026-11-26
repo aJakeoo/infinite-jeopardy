@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "infinite-jeopardy",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOM", "class_name": "Room" },
+      { "name": "VAULT", "class_name": "BoardVault" },
+      { "name": "LIMITER", "class_name": "Limiter" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room", "BoardVault", "Limiter"] }
+  ],
+  "vars": {
+    // Spending guards for the AI. Raise them once you have watched a few days of use.
+    "DAILY_BOARD_LIMIT": "100",
+    "HOURLY_BOARDS_PER_IP": "12"
+  },
+  "observability": { "enabled": true }
+  // ANTHROPIC_API_KEY is a secret: `npx wrangler secret put ANTHROPIC_API_KEY`
+  // (locally: put it in .dev.vars). Without it the game runs on built-in demo boards.
+}

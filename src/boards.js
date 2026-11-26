@@ -1,0 +1,249 @@
+// Board validation, demo boards, and AI board generation (Claude Haiku 5.5).
+import { SIZES, LIMITS } from './game.js';
+
+export const MODEL = 'claude-haiku-5-5';
+
+/* ---------------- validation ---------------- */
+
+const clean = (t, max) => String(t == null ? '' : t).replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+
+export function coreAnswer(response) {
+  return clean(response, 200)
+    .replace(/^(what|who|where|when|which)\s+(is|are|was|were)\s+/i, '')
+    .replace(/[?.!]+$/, '')
+    .replace(/^(the|a|an)\s+/i, '')
+    .replace(/\s*\(.*\)\s*$/, '')
+    .trim();
+}
+
+function asQuestion(response) {
+  const r = clean(response, 120);
+  if (!r) return r;
+  if (/^(what|who|where|when|which)\s/i.test(r)) return r.endsWith('?') ? r : r + '?';
+  return `What is ${r.replace(/[?.!]+$/, '')}?`;
+}
+
+// Normalises a board and reports problems. Hard errors make the board unusable.
+export function validateBoard(raw, size) {
+  const { cols, rows } = SIZES[size] || SIZES['6x5'];
+  const hard = [], soft = [];
+  if (!raw || !Array.isArray(raw.categories)) return { board: null, hard: ['No categories came back.'], soft };
+  if (raw.categories.length < cols) hard.push(`Expected ${cols} categories, got ${raw.categories.length}.`);
+  const categories = raw.categories.slice(0, cols).map((cat, ci) => {
+    const clues = Array.isArray(cat && cat.clues) ? cat.clues : [];
+    if (clues.length < rows) hard.push(`Category ${ci + 1} has ${clues.length} clues, needs ${rows}.`);
+    return {
+      name: clean(cat && cat.name, 40) || `Category ${ci + 1}`,
+      clues: clues.slice(0, rows).map((cl) => ({ clue: clean(cl && cl.clue, 240), response: asQuestion(cl && cl.response) })),
+    };
+  });
+  const seenCats = new Set(), seenAns = new Map();
+  categories.forEach((cat, ci) => {
+    const k = cat.name.toLowerCase();
+    if (seenCats.has(k)) hard.push(`Category "${cat.name}" appears twice.`);
+    seenCats.add(k);
+    cat.clues.forEach((cl, ri) => {
+      const where = `${cat.name} #${ri + 1}`;
+      if (!cl.clue || cl.clue.length < 12) hard.push(`${where}: clue is missing or too short.`);
+      if (!cl.response) hard.push(`${where}: response is missing.`);
+      if (cl.clue.length > 200) soft.push(`${where}: clue is long for a TV.`);
+      const core = coreAnswer(cl.response).toLowerCase();
+      if (core.length >= 4 && cl.clue.toLowerCase().includes(core)) hard.push(`${where}: the clue gives away the answer "${coreAnswer(cl.response)}".`);
+      if (core) {
+        if (seenAns.has(core)) hard.push(`${where}: same answer as ${seenAns.get(core)}.`);
+        else seenAns.set(core, where);
+      }
+    });
+  });
+  let final = null;
+  if (raw.final && raw.final.clue && raw.final.response) {
+    final = { category: clean(raw.final.category, 40) || 'Final Jeopardy', clue: clean(raw.final.clue, 260), response: asQuestion(raw.final.response) };
+    const core = coreAnswer(final.response).toLowerCase();
+    if (core.length >= 4 && final.clue.toLowerCase().includes(core)) hard.push('Final: the clue gives away the answer.');
+  } else soft.push('No Final Jeopardy clue.');
+  const board = { title: clean(raw.title, 60), categories, final };
+  return { board: hard.length ? null : board, hard, soft, draft: board };
+}
+
+/* ---------------- demo boards (used when no AI key is configured) ---------------- */
+
+const q = (clue, response) => ({ clue, response });
+export const DEMO_BOARDS = [
+  {
+    title: '1800s History', match: /18|19th|history|victoria|railroad|gold|century|war/i,
+    categories: [
+      { name: 'Iron Horses', clues: [
+        q("This British engineer's locomotive 'Rocket' won the 1829 Rainhill Trials.", 'Who is George Stephenson?'),
+        q('In 1869 a golden spike joined two railroads at this Utah summit.', 'What is Promontory Summit?'),
+        q('Before the telegraph took over, this 1860-61 mail service relayed riders across the West.', 'What is the Pony Express?'),
+        q('Chartered in 1827, it was the first common-carrier railroad in the United States.', 'What is the Baltimore and Ohio Railroad?'),
+        q('Thousands of workers from this country built much of the Central Pacific line through the Sierra Nevada.', 'What is China?'),
+      ] },
+      { name: 'Gold Rush Fever', clues: [
+        q('The California Gold Rush began in 1848 after gold was found at this man\'s sawmill.', 'Who is John Sutter?'),
+        q('Gold seekers who rushed west in 1849 got this nickname, later taken by a San Francisco football team.', 'What are the Forty-Niners?'),
+        q("This late-1890s rush sent prospectors north to Canada's Yukon.", 'What is the Klondike Gold Rush?'),
+        q('Miners swirled gravel and water in this shallow dish so heavy gold settled to the bottom.', 'What is a pan?'),
+        q('Gold found on the Witwatersrand in 1886 led to the founding of this South African city.', 'What is Johannesburg?'),
+      ] },
+      { name: 'Revolutions of 1848', clues: [
+        q('In 1848 Karl Marx and Friedrich Engels published this short political pamphlet.', 'What is The Communist Manifesto?'),
+        q("The February Revolution of 1848 ended King Louis-Philippe's reign in this country.", 'What is France?'),
+        q('In July 1848 this New York town hosted the first women\'s rights convention in the U.S.', 'What is Seneca Falls?'),
+        q("Chancellor Metternich fled Vienna in 1848 as revolution shook this empire.", 'What is the Austrian Empire?'),
+        q('This 1848 treaty ended the Mexican-American War.', 'What is the Treaty of Guadalupe Hidalgo?'),
+      ] },
+      { name: 'Painted in the 1800s', clues: [
+        q('Vincent van Gogh painted this swirling night sky in 1889.', 'What is The Starry Night?'),
+        q("Claude Monet's painting 'Impression, Sunrise' gave its name to this movement.", 'What is Impressionism?'),
+        q("This Japanese artist made 'The Great Wave off Kanagawa' around 1831.", 'Who is Hokusai?'),
+        q('Edgar Degas painted and sculpted dancers from this art form again and again.', 'What is ballet?'),
+        q("Georges Seurat built 'A Sunday Afternoon on the Island of La Grande Jatte' out of tiny dots, a technique called this.", 'What is pointillism?'),
+      ] },
+      { name: "Inventors' Row", clues: [
+        q('Alexander Graham Bell received a patent for this device in 1876.', 'What is the telephone?'),
+        q("Thomas Edison's famous Menlo Park laboratory was in this U.S. state.", 'What is New Jersey?'),
+        q("In 1844 Samuel Morse sent 'What hath God wrought' over this invention.", 'What is the telegraph?'),
+        q('Karl Benz built an early practical automobile in 1885, powered by this kind of engine.', 'What is an internal combustion engine?'),
+        q('Nikola Tesla championed this kind of electric current, now used by most power grids.', 'What is alternating current?'),
+      ] },
+      { name: 'The Victorians', clues: [
+        q('She reigned over Britain from 1837 to 1901.', 'Who is Queen Victoria?'),
+        q('Charles Dickens wrote this 1843 story about Ebenezer Scrooge.', 'What is A Christmas Carol?'),
+        q('This glass-and-iron hall in London housed the Great Exhibition of 1851.', 'What is the Crystal Palace?'),
+        q('Charles Darwin laid out natural selection in this 1859 book.', 'What is On the Origin of Species?'),
+        q("Queen Victoria's German-born husband, he helped organize the Great Exhibition.", 'Who is Prince Albert?'),
+      ] },
+    ],
+    final: { category: 'Famous Voyages', clue: 'Charles Darwin sailed around the world aboard this Royal Navy ship from 1831 to 1836.', response: 'What is HMS Beagle?' },
+  },
+  {
+    title: 'The Ocean', match: /ocean|sea|marine|fish|beach|ship|water|whale/i,
+    categories: [
+      { name: 'Sea Creatures', clues: [
+        q('This eight-armed animal can squirt ink to escape predators.', 'What is an octopus?'),
+        q('The largest animal known to have ever lived, it feeds on tiny krill.', 'What is the blue whale?'),
+        q('In this fish, named for a farm animal, the males carry the babies.', 'What is the seahorse?'),
+        q('Its skeleton is made of cartilage, not bone; the great white is one.', 'What is a shark?'),
+        q('Clownfish live safely among the stinging tentacles of this animal.', 'What is a sea anemone?'),
+      ] },
+      { name: 'Ocean Geography', clues: [
+        q('This is the largest and deepest ocean on Earth.', 'What is the Pacific Ocean?'),
+        q("The world's largest coral reef system lies off the coast of this country.", 'What is Australia?'),
+        q('Challenger Deep, the deepest known point in the ocean, lies in this trench.', 'What is the Mariana Trench?'),
+        q('The smallest ocean, it surrounds the North Pole.', 'What is the Arctic Ocean?'),
+        q('This North Atlantic sea has no coastline and is named for its floating seaweed.', 'What is the Sargasso Sea?'),
+      ] },
+      { name: 'Ships & Sailors', clues: [
+        q("Called unsinkable, this liner sank after hitting an iceberg in 1912.", 'What is the Titanic?'),
+        q("Facing forward on a ship, the left side is called this.", 'What is port?'),
+        q('In 1492 Columbus sailed with the Nina, the Pinta and this ship.', 'What is the Santa Maria?'),
+        q('His expedition was the first to sail around the world, though he died on the way.', 'Who is Ferdinand Magellan?'),
+        q('In a famous novel, this one-legged captain hunts the white whale Moby Dick.', 'Who is Captain Ahab?'),
+      ] },
+      { name: 'Waves & Weather', clues: [
+        q("They rise and fall about twice a day, mostly because of the Moon's pull.", 'What are tides?'),
+        q('A giant wave set off by an undersea earthquake.', 'What is a tsunami?'),
+        q('In the Atlantic it is a hurricane; in the western Pacific the same kind of storm is called this.', 'What is a typhoon?'),
+        q('This warm current carries water from the Gulf of Mexico across the Atlantic toward Europe.', 'What is the Gulf Stream?'),
+        q("This periodic warming of the Pacific off South America is Spanish for 'the boy'.", 'What is El Nino?'),
+      ] },
+      { name: 'Beach Day', clues: [
+        q('Tiny grains of worn-down rock and shell cover most beaches.', 'What is sand?'),
+        q('This five-armed sea creature can regrow a lost arm.', 'What is a sea star?'),
+        q('Hermit crabs move into these borrowed homes as they grow.', 'What are shells?'),
+        q("Hawaiians practiced it for centuries and called it he'e nalu, or wave sliding.", 'What is surfing?'),
+        q('This flat, round relative of the sea urchin often washes up looking like a coin.', 'What is a sand dollar?'),
+      ] },
+      { name: 'Deep Blue Words', clues: [
+        q('A person who sails or works on a ship.', 'What is a sailor?'),
+        q('This heavy hook keeps a ship from drifting.', 'What is an anchor?'),
+        q('Sailors use this word for the floor of a ship.', 'What is the deck?'),
+        q('This tall post holds up a ship\'s sails.', 'What is the mast?'),
+        q('A nautical mile per hour is called this.', 'What is a knot?'),
+      ] },
+    ],
+    final: { category: 'Ocean Explorers', clue: 'In 1960 Jacques Piccard and Don Walsh rode this bathyscaphe to the bottom of the Challenger Deep.', response: 'What is the Trieste?' },
+  },
+];
+
+export function demoBoard(topic, size, rand = Math.random) {
+  const { cols, rows } = SIZES[size] || SIZES['6x5'];
+  let base = DEMO_BOARDS.find((b) => topic && b.match.test(topic));
+  if (!base) base = DEMO_BOARDS[Math.floor(rand() * DEMO_BOARDS.length)];
+  return {
+    title: base.title,
+    categories: base.categories.slice(0, cols).map((c) => ({ name: c.name, clues: c.clues.slice(0, rows).map((x) => ({ ...x })) })),
+    final: { ...base.final },
+    demo: true,
+  };
+}
+
+/* ---------------- AI generation ---------------- */
+
+const SYSTEM = `You write boards for Infinite Jeopardy, a Jeopardy-style party game played on a TV with phone buzzers.
+
+Rules for every board:
+- Exactly the number of categories and clues asked for. Category names are short (2 to 4 words, under 28 characters), distinct from each other, and playful but clear.
+- Each clue is a statement that points to exactly one answer. Each response is phrased as a question: "What is ...?" or "Who is ...?" Keep responses short (1 to 5 words) so they can be judged out loud.
+- Difficulty climbs within each category: the first clue is easy for the audience, the last is hard but fair.
+- Only use well-established facts. If you are not sure a fact is true, use a different clue. No trick questions, no opinions, nothing that changes year to year.
+- Never put the answer, or an obvious form of it, inside the clue.
+- Every response on the board is different.
+- Clues are under 160 characters so a room can read them on a TV.
+- Family friendly: no sexual content, slurs, graphic violence or drugs, unless the audience is explicitly adults, and even then keep it party-appropriate.
+- Calibrate vocabulary and difficulty to the audience age if one is given; otherwise aim at a general adult audience.
+- The final clue is the hardest on the board, with its own category name.`;
+
+function userPrompt({ topic, age, size }, feedback) {
+  const { cols, rows } = SIZES[size] || SIZES['6x5'];
+  let p = `Make a board about: ${topic}\nAudience age: ${age || 'not given (general adult audience)'}\nCategories: ${cols}\nClues per category: ${rows} (easiest first)\nAlso write one Final Jeopardy clue.\nGive the board a short title (under 40 characters).`;
+  if (feedback && feedback.length) p += `\n\nYour last attempt had these problems. Fix every one:\n- ${feedback.slice(0, 12).join('\n- ')}`;
+  return p;
+}
+
+export async function generateBoard(env, req, deps = {}) {
+  const topic = clean(req.topic, LIMITS.TOPIC);
+  const age = clean(req.age, LIMITS.AGE);
+  const size = SIZES[req.size] ? req.size : '6x5';
+  if (!topic) throw new UserError('Type what the board should be about, or roll the dice.');
+  if (!env.ANTHROPIC_API_KEY) {
+    const b = demoBoard(topic, size);
+    return { ...b, topic, age, demo: true };
+  }
+  const { default: Anthropic } = await import('@anthropic-ai/sdk');
+  const { zodOutputFormat } = await import('@anthropic-ai/sdk/helpers/zod');
+  const { z } = await import('zod');
+  const Schema = z.object({
+    title: z.string(),
+    categories: z.array(z.object({ name: z.string(), clues: z.array(z.object({ clue: z.string(), response: z.string() })) })),
+    final: z.object({ category: z.string(), clue: z.string(), response: z.string() }),
+  });
+  const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 90_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
+  let feedback = null, last = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let res;
+    try {
+      res = await client.messages.parse({
+        model: MODEL,
+        max_tokens: 8000,
+        system: SYSTEM,
+        messages: [{ role: 'user', content: userPrompt({ topic, age, size }, feedback) }],
+        output_config: { effort: 'low', format: zodOutputFormat(Schema) },
+      });
+    } catch (e) {
+      if (e && e.status === 429) throw new UserError('The AI is busy right now. Try again in a minute.');
+      if (e && (e.status === 401 || e.status === 403)) throw new UserError('The AI key was rejected. Check the ANTHROPIC_API_KEY secret.');
+      throw new UserError('Could not reach the AI. Try again.');
+    }
+    if (res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
+    if (res.stop_reason === 'max_tokens' || !res.parsed_output) { feedback = ['The answer was cut off or was not valid JSON. Keep clues shorter.']; continue; }
+    const v = validateBoard(res.parsed_output, size);
+    last = v;
+    if (v.board) return { ...v.board, topic, age, demo: false };
+    feedback = v.hard;
+  }
+  throw new UserError('The AI board had problems twice. Try again or tweak the topic.');
+}
+
+export class UserError extends Error {}

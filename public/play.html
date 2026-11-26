@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Infinite Jeopardy Buzzer</title>
+<meta name="theme-color" content="#c7b4a2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400..700&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel="stylesheet" href="/css/base.css">
+<link rel="stylesheet" href="/css/phone.css">
+</head>
+<body class="phone">
+<div class="scene" id="scene" data-pose="join" aria-hidden="true">
+  <div class="haze"></div><div class="cloud c1"></div>
+  <div class="hill far"></div>
+  <div class="hill near"><div class="walker"></div></div>
+  <div class="grain"></div><div class="speck"></div>
+</div>
+
+<main class="app" id="app">
+  <!-- JOIN -->
+  <section class="view" id="v-join">
+    <h1 class="logo join-logo">Infinite Jeopardy</h1>
+    <form class="card joinform" id="join-form" autocomplete="off" novalidate>
+      <div class="field">
+        <label for="room">Room code</label>
+        <input id="room" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" inputmode="text">
+      </div>
+      <div class="field">
+        <label for="name">Your name</label>
+        <input id="name" maxlength="16" autocomplete="nickname" autocapitalize="words" placeholder="What the TV should call you">
+      </div>
+      <button class="btn primary wide" id="join-btn">Join the game</button>
+      <p class="err" id="join-err" role="alert"></p>
+    </form>
+    <p class="join-foot">The code is on the TV.</p>
+  </section>
+
+  <!-- GAME (player or host) -->
+  <section class="view" id="v-game" hidden>
+    <header class="top">
+      <div class="me"><span class="me-name" id="me-name"></span><span class="me-team" id="me-team"></span></div>
+      <div class="me-score num" id="me-score"></div>
+    </header>
+    <div class="stagep" id="stagep"></div>
+    <footer class="foot">
+      <span class="dot" id="dot"></span><span id="foot-text"></span>
+      <button class="link" id="menu-btn" type="button">Menu</button>
+    </footer>
+  </section>
+
+  <div class="sheet" id="sheet" hidden><div class="card sheet-card" id="sheet-card" role="dialog" aria-modal="true"></div></div>
+</main>
+
+<script type="module" src="/js/phone.js"></script>
+</body>
+</html>
