@@ -25,7 +25,8 @@
 .home-actions { display: flex; gap: 1em; justify-content: center; }
 .btn.big { font-size: 1.25em; padding: .85em 1.8em; }
 .home-note { min-height: 1.3em; margin: 1em 0 0; color: var(--rust); font-weight: 600; }
-.home-small { position: absolute; left: 0; right: 0; top: 74cqh; color: var(--paper); opacity: .75; font-size: .95em; }
+.scan-join { text-decoration: none; }
+.scan-join svg { width: 1.2em; height: 1.2em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---------------- cards (setup, join, overlays) ---------------- */
 .card { background: var(--paper); color: var(--ink); border-radius: 1.1em; box-shadow: 0 1.2em 3em rgba(16, 41, 74, .22), 0 .2em .5em rgba(16, 41, 74, .08); }
@@ -252,7 +253,8 @@ body.in-game.mouse .menu .burger, body.in-game .menu .burger:focus-visible, body
 .mi:hover, .mi:focus-visible { background: rgba(31, 58, 92, .08); }
 .mi.warn { color: var(--rust); }
 .mi .kbd { opacity: .55; }
-.overlay { position: absolute; inset: 0; z-index: 10; background: rgba(16, 41, 74, .45); backdrop-filter: blur(4px); display: grid; place-items: center; animation: fade .25s; }
+.overlay { position: fixed; inset: 0; z-index: 40; background: rgba(16, 41, 74, .45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: grid; place-items: center; animation: fade .25s;
+  font-size: max(1.25 * min(1vw, 1.7778vh), 11px); } /* same em as the stage, but the blur spans the whole window */
 @keyframes fade { from { opacity: 0; } }
 .ov { width: min(46em, 70%); padding: 2.2em 2.6em; display: grid; gap: 1em; justify-items: center; text-align: center; max-height: 90%; overflow: auto; }
 .ov h3 { font: 400 2em/1.1 var(--f-display); margin: 0; }

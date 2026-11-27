@@ -33,10 +33,10 @@
       <p class="home-sub">Any topic. Phones are the buzzers.</p>
       <div class="home-actions">
         <button class="btn primary big" id="start">Start a game</button>
+        <a class="btn paper big scan-join" id="join-link" href="/play?scan=1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>Join a game</a>
         <button class="btn paper big" id="resume" hidden>Resume room <span id="resume-code"></span></button>
       </div>
       <p class="home-note" id="home-err" role="alert"></p>
-      <p class="home-small">On a phone? <b id="play-url">/play</b></p>
     </div>
   </section>
 
@@ -170,10 +170,11 @@
     </div>
   </nav>
 
-  <div class="overlay" id="overlay" hidden><div class="card ov" id="ov" role="dialog" aria-modal="true"></div></div>
   <div class="toasts" id="toasts" aria-live="polite"></div>
   <div class="netbadge" id="net" hidden></div>
 </main>
+<!-- outside the stage so its blur covers the whole window, letterbox bars included -->
+<div class="overlay" id="overlay" hidden><div class="card ov" id="ov" role="dialog" aria-modal="true"></div></div>
 
 <script src="/js/vendor/qrcode.js"></script>
 <script type="module" src="/js/tv.js"></script>

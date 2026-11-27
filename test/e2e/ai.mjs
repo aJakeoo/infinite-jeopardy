@@ -49,7 +49,7 @@ const reqs = JSON.parse(fs.readFileSync('test/e2e/out/ai-requests.json', 'utf8')
 const first = reqs[0].body;
 ok('request uses claude-haiku-5-5', first.model === 'claude-haiku-5-5', first.model);
 ok('request asks for structured JSON output', first.output_config && first.output_config.format && first.output_config.format.type === 'json_schema', JSON.stringify(first.output_config).slice(0, 120));
-ok('request sets low effort for speed', first.output_config.effort === 'low');
+ok('first request thinks at medium effort', first.output_config.effort === 'medium' && first.max_tokens >= 32000);
 ok('request sends the API key and version header', /test-key/.test(reqs[0].headers.auth || '') && !!reqs[0].headers['anthropic-version']);
 ok('the retry tells the model what was wrong', reqs.length >= 2 && /gives away the answer/.test(JSON.stringify(reqs[1].body.messages)));
 ok('topic and age reach the prompt', /the ocean/.test(JSON.stringify(first.messages)));

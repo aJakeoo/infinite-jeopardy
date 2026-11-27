@@ -56,8 +56,13 @@ function showJoin(msg) {
 }
 /* scan the TV's QR from inside the app */
 $('scan-btn').hidden = !canScan();
-$('scan-btn').addEventListener('click', async () => {
-  sfx.unlock();
+$('scan-btn').addEventListener('click', () => { sfx.unlock(); startScan(); });
+// "Join a game" on the TV home links to /play?scan=1: open the camera right away (the code form stays behind it)
+if (canScan() && ROLE !== 'host' && new URLSearchParams(location.search).has('scan')) {
+  history.replaceState(null, '', '/play');
+  setTimeout(startScan, 150);
+}
+async function startScan() {
   const text = await scanQR();
   if (!text) return;
   const g = readGameLink(text);
@@ -67,7 +72,7 @@ $('scan-btn').addEventListener('click', async () => {
   $('join-err').textContent = '';
   if ($('name').value.trim()) joinGame(g.room, $('name').value.replace(/\s+/g, ' ').trim(), false);
   else $('name').focus();
-});
+}
 
 /* back to hosting a room from the installed app */
 (() => {

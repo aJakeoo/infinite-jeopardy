@@ -18,7 +18,6 @@ function savedCreds() {
   try { const c = JSON.parse(store.get(CRED_KEY) || 'null'); return c && Date.now() - c.at < ROOM_TTL ? c : null; } catch { return null; }
 }
 function boot() {
-  $('play-url').textContent = `${location.host}/play`;
   const c = savedCreds();
   if (c) { $('resume').hidden = false; $('resume-code').textContent = c.code; }
   show('s-home');
@@ -244,7 +243,7 @@ function renderGenerating() {
   $('gen-topic').textContent = S.gen.topic;
   const g = $('gen-fill');
   g.dataset.start = S.gen.startedAt || Date.now();
-  g.dataset.tau = S.settings.size === '4x4' ? 9000 : 15000;
+  g.dataset.tau = S.settings.size === '4x4' ? 14000 : 22000;
   put($('join-card-2'), joinCard(true));
   if (!genTimer) {
     let i = 0; $('gen-line').textContent = GEN_LINES[0];

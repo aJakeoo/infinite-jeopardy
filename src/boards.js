@@ -226,7 +226,7 @@ export async function generateBoard(env, req, deps = {}) {
     categories: z.array(z.object({ name: z.string(), clues: z.array(z.object({ clue: z.string(), response: z.string() })) })),
     final: z.object({ category: z.string(), clue: z.string(), response: z.string() }),
   });
-  const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 150_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
+  const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 240_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
   const FixSchema = z.object({ fixes: z.array(z.object({ id: z.number(), clue: z.string(), response: z.string() })) });
   const MAX_CALLS = 3;
   let calls = 0, feedback = null, cutOff = false, last = null;
@@ -244,11 +244,11 @@ export async function generateBoard(env, req, deps = {}) {
   const dupOnly = (v) => v && v.draft && v.hard.length && v.hard.every((h) => /same answer as/.test(h));
   while (calls < MAX_CALLS) {
     const res = await call({
-      max_tokens: 16000, // Haiku 5.5 thinks by default and thinking counts toward this cap
+      max_tokens: 32000, // Haiku 5.5 thinks by default and thinking counts toward this cap; leave it plenty of room
       // Thinking helps fact quality, but it once ran past the cap on a wordplay-heavy board; if that happens, write straight out.
       ...(cutOff ? { thinking: { type: 'disabled' } } : {}),
       messages: [{ role: 'user', content: userPrompt({ topic, age, size, tune }, feedback) }],
-      output_config: { effort: 'low', format: zodOutputFormat(Schema) },
+      output_config: { effort: cutOff ? 'low' : 'medium', format: zodOutputFormat(Schema) },
     });
     if (res && res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
     if (!res || res.stop_reason === 'max_tokens' || !res.parsed_output) {
@@ -289,7 +289,7 @@ async function repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tu
   const taken = new Set();
   b.categories.forEach((c) => c.clues.forEach((x) => taken.add(coreAnswer(x.response))));
   const prompt = `Replace these clues on a board about: ${topic}\n\n${audiencePrompt(age, tune).text}\n\nFor each one, write a new clue and response for the same category and the same difficulty. The clue must never contain the answer or a form of it. Every new response must be different from all of these responses already on the board: ${[...taken].join('; ')}.\n\n${items.map((i) => i.text).join('\n')}`;
-  const res = await call({ max_tokens: 6000, thinking: { type: 'disabled' }, messages: [{ role: 'user', content: prompt }], output_config: { effort: 'low', format: zodOutputFormat(FixSchema) } });
+  const res = await call({ max_tokens: 16000, messages: [{ role: 'user', content: prompt }], output_config: { effort: 'low', format: zodOutputFormat(FixSchema) } });
   if (!res || !res.parsed_output || !Array.isArray(res.parsed_output.fixes)) return null;
   for (const fx of res.parsed_output.fixes) {
     const it = items.find((i) => i.id === fx.id);

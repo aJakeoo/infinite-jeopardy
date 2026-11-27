@@ -443,7 +443,7 @@ test('AI path: a cut-off attempt is retried, with thinking off', async () => {
   assert.equal(calls.length, 2);
   assert.equal(calls[0].thinking, undefined, 'first try thinks as usual');
   assert.deepEqual(calls[1].thinking, { type: 'disabled' }, 'after a cut-off, write straight out');
-  assert.ok(calls[0].max_tokens >= 16000);
+  assert.ok(calls[0].max_tokens >= 32000 && calls[0].output_config.effort === 'medium');
   assert.equal(b.demo, false);
 });
 

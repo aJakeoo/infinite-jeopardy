@@ -1,7 +1,7 @@
 // Service worker: makes the phone and TV installable and opens them instantly from the home screen.
 // Pages and code are network-first (a deploy shows up on the next open); icons and the QR library are
 // cache-first. The game itself (/api and the WebSockets) is always live and never cached.
-const VERSION = 'ij-v1';
+const VERSION = 'ij-v2';
 const SHELL = ['/', '/play', '/css/base.css', '/css/tv.css', '/css/phone.css', '/js/tv.js', '/js/phone.js', '/js/net.js',
   '/js/sfx.js', '/js/topics.js', '/js/tuning.js', '/js/scan.js', '/js/vendor/qrcode.js', '/favicon.svg', '/icons/icon-192.png', '/icons/icon-180.png'];
 

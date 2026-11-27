@@ -191,7 +191,7 @@ body.host .stagep { overflow-y: auto; -webkit-overflow-scrolling: touch; padding
 @keyframes slide { from { translate: -100% 0; } to { translate: 250% 0; } }
 
 /* ---------------- sheet (menu) ---------------- */
-.sheet { position: fixed; inset: 0; z-index: 20; background: rgba(16, 41, 74, .45); display: flex; align-items: flex-end; padding: 0 10px calc(74px + env(safe-area-inset-bottom, 0px)); }
+.sheet { position: fixed; inset: 0; z-index: 20; background: rgba(16, 41, 74, .45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: flex; align-items: flex-end; padding: 0 10px calc(74px + env(safe-area-inset-bottom, 0px)); }
 .sheet-card { width: 100%; padding: 20px; display: grid; gap: 10px; transform-origin: calc(100% - 24px) calc(100% + 40px); animation: swing .4s var(--ease); }
 @keyframes swing { from { opacity: 0; rotate: -12deg; scale: .7; } }
 .sheet-card h3 { margin: 0 0 4px; font: 400 24px/1.1 var(--f-display); }
