@@ -7,6 +7,10 @@
 <meta name="theme-color" content="#c7b4a2">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="/manifest-play.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<meta name="apple-mobile-web-app-title" content="Jeopardy">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,6 +31,7 @@
   <section class="view" id="v-join">
     <h1 class="logo join-logo">Infinite <i>Jeopardy</i></h1>
     <form class="card joinform" id="join-form" autocomplete="off" novalidate>
+      <button type="button" class="btn paper wide scan-btn" id="scan-btn" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg>Scan the TV's QR</button>
       <div class="field">
         <label for="room">Room code</label>
         <input id="room" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD" inputmode="text">
@@ -38,7 +43,8 @@
       <button class="btn primary wide" id="join-btn">Join the game</button>
       <p class="err" id="join-err" role="alert"></p>
     </form>
-    <p class="join-foot">Scan the QR on the TV, or open its menu for the code.</p>
+    <button type="button" class="btn on-hill wide" id="host-resume" hidden></button>
+    <button type="button" class="link install-link" id="install-link" hidden>Get the app</button>
   </section>
 
   <!-- GAME (player or host) -->

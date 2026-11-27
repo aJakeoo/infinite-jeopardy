@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Infinite Jeopardy TV",
+  "short_name": "Jeopardy TV",
+  "description": "The Infinite Jeopardy board for a TV or laptop.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#c7b4a2",
+  "theme_color": "#c7b4a2",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

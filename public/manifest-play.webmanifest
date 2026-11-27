@@ -1,0 +1,32 @@
+{
+  "id": "/play",
+  "name": "Infinite Jeopardy",
+  "short_name": "Jeopardy",
+  "description": "Buzz in and host Infinite Jeopardy from your phone.",
+  "start_url": "/play",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#c7b4a2",
+  "theme_color": "#c7b4a2",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

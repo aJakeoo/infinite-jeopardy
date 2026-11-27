@@ -2,6 +2,7 @@
 import { Conn, storage, esc, money, put } from './net.js';
 import * as sfx from './sfx.js';
 import { rollTopic } from './topics.js';
+import { scanQR, canScan, readGameLink } from './scan.js';
 import { STYLES, STYLE_IDS, BANDS, LEVELS, AGE_PRESETS, bandFor, defaultTune, cleanTune, composeAges, splitAges } from './tuning.js';
 
 const $ = (id) => document.getElementById(id);
@@ -29,6 +30,8 @@ function boot() {
   const urlRoom = (params.get('room') || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
   if (ROLE === 'host') {
     if (!urlRoom || !HOST_KEY) { showJoin('That host link is missing its room or key. Open it again from the TV.'); return; }
+    // Remember the host link so the installed app can go straight back to hosting.
+    store.set('ij-host', JSON.stringify({ room: urlRoom, key: HOST_KEY, at: Date.now() }));
     startConn(urlRoom);
     showGame();
     return;
@@ -43,6 +46,7 @@ function boot() {
     return;
   }
   showJoin();
+  if (!urlRoom && !$('room').value) return; // nothing typed yet: leave the keyboard down so the Scan button shows
   setTimeout(() => ($('room').value.length === 4 ? $('name') : $('room')).focus(), 250);
 }
 function showJoin(msg) {
@@ -50,6 +54,46 @@ function showJoin(msg) {
   $('scene').dataset.pose = 'join';
   $('join-err').textContent = msg || '';
 }
+/* scan the TV's QR from inside the app */
+$('scan-btn').hidden = !canScan();
+$('scan-btn').addEventListener('click', async () => {
+  sfx.unlock();
+  const text = await scanQR();
+  if (!text) return;
+  const g = readGameLink(text);
+  if (!g) { $('join-err').textContent = 'That QR is not an Infinite Jeopardy room.'; return; }
+  if (g.host) { location.href = `/play?room=${g.room}&role=host&key=${encodeURIComponent(g.key)}`; return; }
+  $('room').value = g.room;
+  $('join-err').textContent = '';
+  if ($('name').value.trim()) joinGame(g.room, $('name').value.replace(/\s+/g, ' ').trim(), false);
+  else $('name').focus();
+});
+
+/* back to hosting a room from the installed app */
+(() => {
+  if (ROLE === 'host') return;
+  let h = null;
+  try { h = JSON.parse(store.get('ij-host') || 'null'); } catch {}
+  if (!h || !h.room || !h.key || Date.now() - (h.at || 0) > 12 * 3600 * 1000) return;
+  const b = $('host-resume');
+  b.textContent = `Back to hosting ${h.room}`;
+  b.hidden = false;
+  b.addEventListener('click', () => { location.href = `/play?room=${h.room}&role=host&key=${encodeURIComponent(h.key)}`; });
+})();
+
+/* install as an app: Android/Chrome gets the real prompt, iPhone gets the Share steps */
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let installEvt = null;
+addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; if (!standalone) $('install-link').hidden = false; });
+if (!standalone && isIOS) $('install-link').hidden = false;
+$('install-link').addEventListener('click', async () => {
+  if (installEvt) { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $('install-link').hidden = true; return; }
+  $('sheet').hidden = false;
+  put($('sheet-card'), `<h3>Get the app</h3><ol class="steps"><li>Tap <b>Share</b> <svg class="share" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/></svg> in Safari</li><li>Tap <b>Add to Home Screen</b></li><li>Open <b>Jeopardy</b> from your home screen</li></ol><button class="btn line wide" data-m="close">Done</button>`);
+});
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
 function showGame() { $('v-join').hidden = true; $('v-game').hidden = false; }
 
 $('room').addEventListener('input', () => {
@@ -411,7 +455,8 @@ function hostLine(c) {
 }
 
 /* host setup: everything the TV setup screen can do */
-let hostSetupBuilt = false, hostAgeTimer = null;
+let hostSetupBuilt = false, hostAgeTimer = null, hostTopicTimer = null, hostSentTopic = null, hostTopicTypedAt = 0;
+function sendHostTopic() { clearTimeout(hostTopicTimer); hostTopicTimer = null; if (!$('hs-topic') || !S || S.phase !== 'setup') return; hostSentTopic = $('hs-topic').value; conn.request({ t: 'settings', settings: { topic: hostSentTopic } }).then(fail); }
 const seg = (id, items, attr) => `<div class="hseg" id="${id}">${items.map(([v, l]) => `<button type="button" data-${attr}="${v}">${l}</button>`).join('')}</div>`;
 function playersBlock() {
   return `<p class="sect">Players</p><div class="pchips">${S.players.map((p) => `<span class="pchip${p.connected ? '' : ' off'}">${esc(p.name)}${isTeams() && S.teams[p.team] ? ` <small>${esc(S.teams[p.team].name)}</small>` : ''}<button class="x" data-kick="${p.id}" aria-label="Remove ${esc(p.name)}">&times;</button></span>`).join('') || '<span class="pnone">Nobody yet</span>'}</div>`;
@@ -420,7 +465,7 @@ function renderHostSetup() {
   if (!hostSetupBuilt) {
     hostSetupBuilt = true;
     put($('stagep'), `<form class="card hcard hsetup" id="hs-form" autocomplete="off">
-      <div class="hrow"><input id="hs-topic" maxlength="120" placeholder="Board topic" value="${esc(S.gen.topic || '')}"><button type="button" class="btn primary hdice" id="hs-dice" aria-label="Roll a random topic">
+      <div class="hrow"><input id="hs-topic" maxlength="120" placeholder="Board topic" value="${esc(S.settings.topic || S.gen.topic || '')}"><button type="button" class="btn primary hdice" id="hs-dice" aria-label="Roll a random topic">
         <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="26" height="26" rx="6"/><circle cx="10" cy="10" r="2.4"/><circle cx="22" cy="10" r="2.4"/><circle cx="16" cy="16" r="2.4"/><circle cx="10" cy="22" r="2.4"/><circle cx="22" cy="22" r="2.4"/></svg></button></div>
       <span class="hl">Ages</span>
       <div class="hchecks" id="hs-ages">${AGE_PRESETS.map(([id, r]) => `<label class="hchk"><input type="checkbox" data-band="${id}"><span>${esc(BANDS[id].label)} <small>${r}</small></span></label>`).join('')}</div>
@@ -436,6 +481,12 @@ function renderHostSetup() {
     </form><div id="hs-players"></div>`);
   }
   const st = S.settings, t = cleanTune(st.tune, st.age || '');
+  if (hostSentTopic !== null && (st.topic || '') === hostSentTopic) hostSentTopic = null;
+  if (typeof st.topic === 'string' && st.topic !== $('hs-topic').value && !hostTopicTimer && hostSentTopic === null) {
+    const quiet = 2000 - (Date.now() - hostTopicTypedAt);
+    if (quiet <= 0) $('hs-topic').value = st.topic;
+    else setTimeout(() => { if (S && S.phase === 'setup' && hostSetupBuilt) renderHostSetup(); }, quiet + 20);
+  }
   if (document.activeElement !== $('hs-other') && !hostAgeTimer) {
     const { bands, other } = splitAges(st.age || '');
     document.querySelectorAll('#hs-ages input').forEach((x) => { x.checked = bands.includes(x.dataset.band); });
@@ -466,12 +517,14 @@ $('stagep').addEventListener('change', (e) => {
   }
 });
 $('stagep').addEventListener('input', (e) => {
+  if (ROLE === 'host' && e.target.id === 'hs-topic') { hostTopicTypedAt = Date.now(); clearTimeout(hostTopicTimer); hostTopicTimer = setTimeout(sendHostTopic, 350); return; }
   if (ROLE !== 'host' || e.target.id !== 'hs-other') return;
   clearTimeout(hostAgeTimer); hostAgeTimer = setTimeout(sendHostAges, 400);
 });
 $('stagep').addEventListener('submit', async (e) => {
   if (e.target.id !== 'hs-form') return;
   e.preventDefault();
+  clearTimeout(hostTopicTimer); hostTopicTimer = null;
   const topic = $('hs-topic').value.trim();
   if (!topic) { $('hs-err').textContent = 'Type a topic or roll the dice.'; return; }
   $('hs-err').textContent = '';
@@ -486,7 +539,7 @@ $('stagep').addEventListener('click', async (e) => {
   const b = e.target.closest('button'); if (!b) return;
   sfx.unlock();
   if (b.dataset.select) return fail(await conn.request({ t: 'select', pid: b.dataset.select }));
-  if (b.id === 'hs-dice') { $('hs-topic').value = rollTopic(hostAges()); return; }
+  if (b.id === 'hs-dice') { $('hs-topic').value = rollTopic(hostAges()); sendHostTopic(); return; }
   if (b.id === 'hs-load') { const r = await conn.request({ t: 'load-board', code: $('hs-code').value.trim().toUpperCase() }); if (!r.ok) $('hs-err').textContent = r.err; return; }
   if (b.dataset.level != null) return fail(await conn.request({ t: 'settings', settings: { tune: { ...cleanTune(S.settings.tune, S.settings.age || ''), level: Number(b.dataset.level) } } }));
   if (b.dataset.size) return fail(await conn.request({ t: 'settings', settings: { size: b.dataset.size } }));

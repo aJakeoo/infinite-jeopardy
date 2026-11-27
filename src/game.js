@@ -31,7 +31,7 @@ export function newRoom(code, now) {
   return {
     v: 1, code, createdAt: now, lastActivity: now, seq: 0,
     phase: 'setup',
-    settings: { size: '6x5', mode: 'solo', teams: 2, age: '', tune: defaultTune('') },
+    settings: { size: '6x5', mode: 'solo', teams: 2, age: '', topic: '', tune: defaultTune('') },
     gen: { status: 'idle', error: null, topic: '', age: '' },
     board: null, used: {}, players: {}, teams: {}, control: null,
     current: null, final: null, event: null,
@@ -103,6 +103,8 @@ export function setSettings(s, next) {
   if (next.size && SIZES[next.size]) s.settings.size = next.size;
   if (next.mode === 'solo' || next.mode === 'teams') s.settings.mode = next.mode;
   if (Number.isInteger(next.teams) && next.teams >= 2 && next.teams <= 4) s.settings.teams = next.teams;
+  // The topic being typed is shared so the TV and host phone show the same draft.
+  if (typeof next.topic === 'string') s.settings.topic = next.topic.replace(/[\u0000-\u001f]/g, ' ').slice(0, LIMITS.TOPIC);
   if (typeof next.age === 'string') s.settings.age = next.age.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, LIMITS.AGE);
   if (next.tune) s.settings.tune = cleanTune(next.tune, s.settings.age);
   else if (!s.settings.tune) s.settings.tune = defaultTune(s.settings.age);

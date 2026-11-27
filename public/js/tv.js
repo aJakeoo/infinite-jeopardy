@@ -111,7 +111,8 @@ let setupInit = false;
 function renderSetup() {
   if (!setupInit) {
     setupInit = true;
-    if (S.gen && S.gen.topic && !$('topic').value) $('topic').value = S.gen.topic;
+    const t0 = S.settings.topic || (S.gen && S.gen.topic) || '';
+    if (t0 && !$('topic').value) $('topic').value = t0;
     const age0 = (S.settings && S.settings.age) || (S.gen && S.gen.age) || '';
     $('age-checks').innerHTML = AGE_PRESETS.map(([id, r]) => `<label class="check"><input type="checkbox" data-band="${id}"><span>${esc(BANDS[id].label)} <small>${r}</small></span></label>`).join('');
     setAges(age0);
@@ -123,6 +124,13 @@ function renderSetup() {
   document.querySelectorAll('#mode-seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === st.mode)));
   document.querySelectorAll('#teams-seg button').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.teams) === st.teams)));
   $('teams-field').hidden = st.mode !== 'teams';
+  // Follow the host phone's typing unless someone is typing here.
+  if (sentTopic !== null && (st.topic || '') === sentTopic) sentTopic = null;
+  if (typeof st.topic === 'string' && st.topic !== $('topic').value && !topicTimer && sentTopic === null) {
+    const quiet = 2000 - (Date.now() - topicTypedAt);
+    if (quiet <= 0) $('topic').value = st.topic;
+    else setTimeout(() => { if (S && S.phase === 'setup') renderSetup(); }, quiet + 20);
+  }
   // The host phone can change the ages too; follow it unless someone is editing them here.
   if (sentAge !== null && (st.age || '') === sentAge) sentAge = null;
   if ($('ages-pop').hidden && !ageTimer && sentAge === null && ageValue() !== (st.age || '')) { setAges(st.age || ''); lastBand = bandFor(st.age || ''); }
@@ -131,6 +139,9 @@ function renderSetup() {
   $('demo-note').hidden = ai;
   put($('join-card'), joinCard(false));
 }
+let topicTimer = null, sentTopic = null, topicTypedAt = 0;
+function sendTopic() { clearTimeout(topicTimer); topicTimer = null; if (!S || S.phase !== 'setup') return; sentTopic = $('topic').value; setting({ topic: sentTopic }); }
+$('topic').addEventListener('input', () => { topicTypedAt = Date.now(); clearTimeout(topicTimer); topicTimer = setTimeout(sendTopic, 350); });
 function setting(obj) { conn.request({ t: 'settings', settings: obj }).then(fail); }
 
 /* fine tune: the age picks a band and pre-ticks its styles; players can then tick and untick */
@@ -194,6 +205,7 @@ $('mode-seg').addEventListener('click', (e) => { const b = e.target.closest('but
 $('teams-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ teams: Number(b.dataset.teams) }); });
 $('dice').addEventListener('click', () => {
   $('topic').value = rollTopic(ageValue());
+  sendTopic();
   const d = $('dice'); d.classList.remove('rolling'); void d.offsetWidth; d.classList.add('rolling');
   $('setup-err').dataset.local = ''; $('setup-err').textContent = '';
 });
@@ -538,3 +550,4 @@ let mouseTimer = null;
 document.addEventListener('mousemove', () => { document.body.classList.add('mouse'); clearTimeout(mouseTimer); mouseTimer = setTimeout(() => document.body.classList.remove('mouse'), 2500); });
 syncMute();
 boot();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

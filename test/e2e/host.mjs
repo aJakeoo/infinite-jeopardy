@@ -11,7 +11,7 @@ const errors = [];
 fs.mkdirSync('test/e2e/out', { recursive: true });
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
-const page = async (opts) => { const p = await (await browser.newContext(opts)).newPage(); p.on('pageerror', (e) => errors.push(e.message)); return p; };
+const page = async (opts) => { const p = await (await browser.newContext(opts)).newPage(); p.on('pageerror', (e) => errors.push(e.message + ' @ ' + (e.stack || '').split('\n').slice(0, 3).join(' / '))); return p; };
 const tv = await page({ viewport: { width: 1600, height: 900 } });
 await tv.goto(BASE + '/');
 await tv.click('#start');
@@ -67,6 +67,56 @@ await host.click('#hs-players .pchip:has-text("Cy") .x');
 await tv.waitForFunction(() => !/Cy/.test(document.getElementById('join-card').innerText), null, { timeout: 5000 }).catch(() => {});
 ok('host can remove a player before the game', !/Cy/.test(await tv.locator('#join-card').innerText()));
 await host.screenshot({ path: 'test/e2e/out/host-setup.png', fullPage: true });
+
+// the typed topic mirrors both ways
+await host.fill('#hs-topic', 'volcanoes');
+await tv.waitForFunction(() => document.getElementById('topic').value === 'volcanoes', null, { timeout: 5000 }).catch(() => {});
+ok('topic typed on the host shows on the TV', (await tv.locator('#topic').inputValue()) === 'volcanoes', await tv.locator('#topic').inputValue());
+await tv.fill('#topic', 'bridges');
+await host.click('.hl >> nth=0');
+await host.waitForFunction(() => document.getElementById('hs-topic').value === 'bridges', null, { timeout: 5000 }).catch(() => {});
+ok('topic typed on the TV shows on the host', (await host.locator('#hs-topic').inputValue()) === 'bridges', await host.locator('#hs-topic').inputValue());
+
+// scanning the TV's QR from inside the app (a fake camera shows the real code)
+async function cameraPhone(svg) {
+  const p = await page(PHONE);
+  await p.addInitScript((svgText) => {
+    navigator.mediaDevices.getUserMedia = async () => {
+      const c = document.createElement('canvas'); c.width = 640; c.height = 480;
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 640, 480);
+      const img = new Image();
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgText.replace('<svg ', '<svg width="360" height="360" '));
+      await img.decode();
+      const draw = () => { g.fillRect(0, 0, 640, 480); g.drawImage(img, 140, 60, 360, 360); requestAnimationFrame(draw); };
+      draw();
+      return c.captureStream(15);
+    };
+  }, svg);
+  return p;
+}
+const joinSvg = await tv.locator('#join-card .qr svg').evaluate((el) => el.outerHTML);
+const scanner = await cameraPhone(joinSvg);
+await scanner.goto(BASE + '/play');
+await scanner.fill('#name', 'Scanny');
+await scanner.click('#scan-btn');
+await scanner.waitForSelector('#v-game:not([hidden])', { timeout: 15000 }).catch(() => {});
+await tv.waitForFunction(() => /Scanny/.test(document.getElementById('join-card').innerText), null, { timeout: 5000 }).catch(() => {});
+ok('a player can join by scanning the TV QR inside the app', /Scanny/.test(await tv.locator('#join-card').innerText()));
+await tv.click('#burger'); await tv.click('[data-overlay="host"]');
+const hostSvg = await tv.locator('#ov .qr svg').evaluate((el) => el.outerHTML);
+await tv.keyboard.press('Escape');
+const hostScan = await cameraPhone(hostSvg);
+await hostScan.goto(BASE + '/play');
+await hostScan.click('#scan-btn');
+await hostScan.waitForSelector('#hs-form', { timeout: 15000 }).catch(() => {});
+ok('scanning the host QR inside the app opens the host controls', await hostScan.locator('#hs-form').count() === 1);
+await hostScan.goto(BASE + '/play');
+ok('the app offers to go back to hosting', /Back to hosting/.test(await hostScan.locator('#host-resume').innerText().catch(() => '')));
+const man = await (await fetch(BASE + '/manifest-play.webmanifest')).json();
+ok('the phone app manifest is served', man.display === 'standalone' && man.start_url === '/play' && man.icons.length >= 2);
+const swOk = (await fetch(BASE + '/sw.js')).ok && (await fetch(BASE + '/icons/icon-512.png')).ok;
+ok('service worker and icons are served', swOk);
+ok('the phone registers its service worker', await scanner.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())));
 
 // dice + make the board from the host
 await host.click('#hs-dice');
