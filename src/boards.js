@@ -1,5 +1,6 @@
 // Board validation, demo boards, and AI board generation (Claude Haiku 5.5).
 import { SIZES, LIMITS } from './game.js';
+import { audiencePrompt, BANDS, bandFor, cleanTune } from '../public/js/tuning.js';
 
 export const MODEL = 'claude-haiku-5-5';
 
@@ -24,7 +25,7 @@ function asQuestion(response) {
 }
 
 // Normalises a board and reports problems. Hard errors make the board unusable.
-export function validateBoard(raw, size) {
+export function validateBoard(raw, size, maxClue = 200) {
   const { cols, rows } = SIZES[size] || SIZES['6x5'];
   const hard = [], soft = [];
   if (!raw || !Array.isArray(raw.categories)) return { board: null, hard: ['No categories came back.'], soft };
@@ -46,7 +47,8 @@ export function validateBoard(raw, size) {
       const where = `${cat.name} #${ri + 1}`;
       if (!cl.clue || cl.clue.length < 12) hard.push(`${where}: clue is missing or too short.`);
       if (!cl.response) hard.push(`${where}: response is missing.`);
-      if (cl.clue.length > 200) soft.push(`${where}: clue is long for a TV.`);
+      if (cl.clue.length > Math.max(60, Math.round(maxClue * 1.35))) hard.push(`${where}: clue is ${cl.clue.length} characters; keep it under ${maxClue} for this audience.`);
+      else if (cl.clue.length > maxClue) soft.push(`${where}: clue is long for this audience.`);
       const core = coreAnswer(cl.response).toLowerCase();
       if (core.length >= 4 && cl.clue.toLowerCase().includes(core)) hard.push(`${where}: the clue gives away the answer "${coreAnswer(cl.response)}".`);
       if (core) {
@@ -190,14 +192,15 @@ Rules for every board:
 - Only use well-established facts. If you are not sure a fact is true, use a different clue. No trick questions, no opinions, nothing that changes year to year.
 - Never put the answer, or an obvious form of it, inside the clue.
 - Every response on the board is different.
-- Clues are under 160 characters so a room can read them on a TV.
+- Clues are short enough for a room to read on a TV; the exact limit for this audience is in the request.
 - Family friendly: no sexual content, slurs, graphic violence or drugs, unless the audience is explicitly adults, and even then keep it party-appropriate.
-- Calibrate vocabulary and difficulty to the audience age if one is given; otherwise aim at a general adult audience.
-- The final clue is the hardest on the board, with its own category name.`;
+- The request describes the audience: its reading level, how hard the easiest and hardest clues should be, and which clue styles to use. Follow it closely. A board that is too hard or too wordy for its audience is a failed board.
+- The final clue is the hardest on the board, with its own category name, and still fits the audience.`;
 
-function userPrompt({ topic, age, size }, feedback) {
+export function userPrompt({ topic, age, size, tune }, feedback) {
   const { cols, rows } = SIZES[size] || SIZES['6x5'];
-  let p = `Make a board about: ${topic}\nAudience age: ${age || 'not given (general adult audience)'}\nCategories: ${cols}\nClues per category: ${rows} (easiest first)\nAlso write one Final Jeopardy clue.\nGive the board a short title (under 40 characters).`;
+  const aud = audiencePrompt(age, tune);
+  let p = `Make a board about: ${topic}\n\n${aud.text}\n\nCategories: ${cols}\nClues per category: ${rows} (easiest first)\nAlso write one Final Jeopardy clue.\nGive the board a short title (under 40 characters).`;
   if (feedback && feedback.length) p += `\n\nYour last attempt had these problems. Fix every one:\n- ${feedback.slice(0, 12).join('\n- ')}`;
   return p;
 }
@@ -206,10 +209,13 @@ export async function generateBoard(env, req, deps = {}) {
   const topic = clean(req.topic, LIMITS.TOPIC);
   const age = clean(req.age, LIMITS.AGE);
   const size = SIZES[req.size] ? req.size : '6x5';
+  const tune = cleanTune(req.tune, age);
+  const band = bandFor(age);
+  const maxClue = BANDS[band].maxClue;
   if (!topic) throw new UserError('Type what the board should be about, or roll the dice.');
   if (!env.ANTHROPIC_API_KEY) {
     const b = demoBoard(topic, size);
-    return { ...b, topic, age, demo: true };
+    return { ...b, topic, age, band, demo: true };
   }
   const { default: Anthropic } = await import('@anthropic-ai/sdk');
   const { zodOutputFormat } = await import('@anthropic-ai/sdk/helpers/zod');
@@ -228,7 +234,7 @@ export async function generateBoard(env, req, deps = {}) {
         model: MODEL,
         max_tokens: 8000,
         system: SYSTEM,
-        messages: [{ role: 'user', content: userPrompt({ topic, age, size }, feedback) }],
+        messages: [{ role: 'user', content: userPrompt({ topic, age, size, tune }, feedback) }],
         output_config: { effort: 'low', format: zodOutputFormat(Schema) },
       });
     } catch (e) {
@@ -238,9 +244,9 @@ export async function generateBoard(env, req, deps = {}) {
     }
     if (res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
     if (res.stop_reason === 'max_tokens' || !res.parsed_output) { feedback = ['The answer was cut off or was not valid JSON. Keep clues shorter.']; continue; }
-    const v = validateBoard(res.parsed_output, size);
+    const v = validateBoard(res.parsed_output, size, maxClue);
     last = v;
-    if (v.board) return { ...v.board, topic, age, demo: false };
+    if (v.board) return { ...v.board, topic, age, band, demo: false };
     feedback = v.hard;
   }
   throw new UserError('The AI board had problems twice. Try again or tweak the topic.');

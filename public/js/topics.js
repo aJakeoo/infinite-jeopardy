@@ -1,3 +1,4 @@
+import { parseAge } from './tuning.js';
 // The dice: broad, general topics. Each has a minimum age so younger groups get younger topics.
 const TOPICS = [
   // [topic, minAge]
@@ -18,18 +19,7 @@ const TOPICS = [
 ];
 const MIXERS = ['and', 'meets'];
 
-// "10-12", "8+", "adults", "teens", "kids", "college" -> a single representative age (or null)
-export function parseAge(text) {
-  const t = String(text || '').toLowerCase();
-  if (!t.trim()) return null;
-  if (/adult|grown|college|21|parents/.test(t)) return 25;
-  if (/teen/.test(t)) return 15;
-  if (/kid|child|little/.test(t)) return 8;
-  if (/preschool|toddler/.test(t)) return 4;
-  const nums = (t.match(/\d+/g) || []).map(Number).filter((n) => n > 0 && n < 120);
-  if (!nums.length) return null;
-  return Math.min(...nums); // aim at the youngest player in the range
-}
+export { parseAge };
 
 export function rollTopic(ageText, rand = Math.random) {
   const age = parseAge(ageText);

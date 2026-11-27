@@ -3,6 +3,8 @@
 // The Durable Object (src/room.js) owns persistence, sockets and timers; this file owns the rules,
 // so the rules can be unit-tested in plain Node without Cloudflare.
 
+import { cleanTune, defaultTune } from '../public/js/tuning.js';
+
 export const SIZES = {
   '6x5': { cols: 6, rows: 5, dd: 2 },
   '4x4': { cols: 4, rows: 4, dd: 1 },
@@ -28,7 +30,7 @@ export function newRoom(code, now) {
   return {
     v: 1, code, createdAt: now, lastActivity: now, seq: 0,
     phase: 'setup',
-    settings: { size: '6x5', mode: 'solo', teams: 2 },
+    settings: { size: '6x5', mode: 'solo', teams: 2, age: '', tune: defaultTune('') },
     gen: { status: 'idle', error: null, topic: '', age: '' },
     board: null, used: {}, players: {}, teams: {}, control: null,
     current: null, final: null, event: null,
@@ -100,6 +102,9 @@ export function setSettings(s, next) {
   if (next.size && SIZES[next.size]) s.settings.size = next.size;
   if (next.mode === 'solo' || next.mode === 'teams') s.settings.mode = next.mode;
   if (Number.isInteger(next.teams) && next.teams >= 2 && next.teams <= 4) s.settings.teams = next.teams;
+  if (typeof next.age === 'string') s.settings.age = next.age.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, LIMITS.AGE);
+  if (next.tune) s.settings.tune = cleanTune(next.tune, s.settings.age);
+  else if (!s.settings.tune) s.settings.tune = defaultTune(s.settings.age);
   syncTeams(s);
   return OK;
 }

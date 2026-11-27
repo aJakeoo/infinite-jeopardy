@@ -1,6 +1,7 @@
 // TV / laptop screen: creates the room, shows the board, and can run the whole game by itself.
 import { Conn, storage, esc, money, put } from './net.js';
 import { rollTopic } from './topics.js';
+import { STYLES, STYLE_IDS, BANDS, bandFor, defaultTune, cleanTune, tuneSummary } from './tuning.js';
 import * as sfx from './sfx.js';
 
 const $ = (id) => document.getElementById(id);
@@ -113,7 +114,9 @@ function renderSetup() {
   if (!setupInit) {
     setupInit = true;
     if (S.gen && S.gen.topic && !$('topic').value) $('topic').value = S.gen.topic;
-    if (S.gen && S.gen.age && !$('age').value) $('age').value = S.gen.age;
+    const age0 = (S.settings && S.settings.age) || (S.gen && S.gen.age) || '';
+    if (age0 && !$('age').value) $('age').value = age0;
+    $('style-checks').innerHTML = STYLE_IDS.map((id) => `<label class="check"><input type="checkbox" data-style="${id}"><span>${esc(STYLES[id].label)}</span></label>`).join('');
     setTimeout(() => $('topic').focus(), 300);
   }
   const st = S.settings;
@@ -121,11 +124,44 @@ function renderSetup() {
   document.querySelectorAll('#mode-seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === st.mode)));
   document.querySelectorAll('#teams-seg button').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.teams) === st.teams)));
   $('teams-field').hidden = st.mode !== 'teams';
+  renderTune();
   $('setup-err').textContent = S.gen && S.gen.status === 'error' ? S.gen.error : $('setup-err').dataset.local || '';
   $('demo-note').hidden = ai;
   put($('join-card'), joinCard(false));
 }
 function setting(obj) { conn.request({ t: 'settings', settings: obj }).then(fail); }
+
+/* fine tune: the age picks a band and pre-ticks its styles; players can then tick and untick */
+const curTune = () => cleanTune(S.settings.tune, $('age').value);
+function renderTune() {
+  const age = $('age').value, t = curTune(), b = BANDS[bandFor(age)];
+  document.querySelectorAll('#level-seg button').forEach((x) => x.setAttribute('aria-checked', String(Number(x.dataset.level) === t.level)));
+  document.querySelectorAll('#style-checks input').forEach((x) => { x.checked = t.styles.includes(x.dataset.style); });
+  $('tune-sum').textContent = tuneSummary(age, t);
+  const custom = JSON.stringify(t.styles) !== JSON.stringify(defaultTune(age).styles);
+  $('tune-note').textContent = `${age.trim() ? `Ticked for ${b.label.toLowerCase()} (${b.ages})` : 'No ages given, so ticked for adults'}${custom ? ', then fine tuned' : ''}. Tick or untick to change what kinds of clues the AI writes.`;
+}
+let ageTimer = null, lastBand = null;
+$('age').addEventListener('input', () => {
+  clearTimeout(ageTimer);
+  ageTimer = setTimeout(() => {
+    const age = $('age').value.trim(), band = bandFor(age);
+    if (lastBand == null) lastBand = bandFor(S.settings.age || '');
+    // A new age band resets the boxes to that band's picks; typing within the same band keeps any fine tuning.
+    if (band !== lastBand) setting({ age, tune: { ...defaultTune(age), level: curTune().level } });
+    else setting({ age });
+    lastBand = band;
+    renderTune();
+  }, 300);
+});
+// Only one of the two drop-downs open at a time, so the setup card always fits the screen.
+$('tune').addEventListener('toggle', () => { if ($('tune').open) $('loadcode').open = false; });
+$('loadcode').addEventListener('toggle', () => { if ($('loadcode').open) $('tune').open = false; });
+$('level-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ tune: { ...curTune(), level: Number(b.dataset.level) } }); });
+$('style-checks').addEventListener('change', () => {
+  const styles = [...document.querySelectorAll('#style-checks input')].filter((x) => x.checked).map((x) => x.dataset.style);
+  setting({ tune: { ...curTune(), styles } });
+});
 $('size-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ size: b.dataset.size }); });
 $('mode-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ mode: b.dataset.mode }); });
 $('teams-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ teams: Number(b.dataset.teams) }); });
@@ -140,7 +176,11 @@ $('setup-form').addEventListener('submit', async (e) => {
   let topic = $('topic').value.trim();
   if (!topic) { $('setup-err').textContent = $('setup-err').dataset.local = 'Type what the board should be about, or roll the dice.'; $('topic').focus(); return; }
   $('make').disabled = true;
-  const r = await conn.request({ t: 'generate', topic, age: $('age').value.trim() });
+  clearTimeout(ageTimer);
+  const age = $('age').value.trim();
+  if (age !== (S.settings.age || '')) await conn.request({ t: 'settings', settings: bandFor(age) !== bandFor(S.settings.age || '') ? { age, tune: { ...defaultTune(age), level: curTune().level } } : { age } });
+  lastBand = bandFor(age);
+  const r = await conn.request({ t: 'generate', topic, age });
   $('make').disabled = false;
   if (!r.ok) { $('setup-err').textContent = $('setup-err').dataset.local = r.err; }
   else $('setup-err').dataset.local = '';

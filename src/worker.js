@@ -174,7 +174,7 @@ export class Room {
     if (s.gen.status === 'working') return { ok: false, err: 'Already making a board.' };
     if (m.settings) G.setSettings(s, m.settings);
     const topic = String(m.topic || '').trim().slice(0, G.LIMITS.TOPIC);
-    const age = String(m.age || '').trim().slice(0, G.LIMITS.AGE);
+    const age = String(m.age ?? s.settings.age ?? '').trim().slice(0, G.LIMITS.AGE);
     if (!topic) return { ok: false, err: 'Type what the board should be about, or roll the dice.' };
     if (this.env.ANTHROPIC_API_KEY) {
       const lim = await this.env.LIMITER.get(this.env.LIMITER.idFromName('global')).fetch('https://limiter/take', { method: 'POST', body: JSON.stringify({ ip: a.ip }) });
@@ -185,7 +185,7 @@ export class Room {
     s.phase = 'generating';
     await this.commit();
     // Generate in the background so the socket stays responsive.
-    this.ctx.waitUntil(this.runGeneration({ topic, age, size: s.settings.size }));
+    this.ctx.waitUntil(this.runGeneration({ topic, age, size: s.settings.size, tune: s.settings.tune }));
     return { ok: true, quiet: true };
   }
 
