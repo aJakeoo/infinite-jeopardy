@@ -16,7 +16,9 @@ test('ages map to the youngest player and the right band', () => {
 test('each band pre-ticks sensible styles', () => {
   assert.ok(defaultTune('6').styles.includes('describe'));
   assert.ok(!defaultTune('6').styles.includes('beforeafter'));
-  assert.ok(defaultTune('adults').styles.includes('beforeafter'));
+  assert.ok(defaultTune('adults').styles.includes('wordplay'));
+  assert.ok(!defaultTune('adults').styles.includes('beforeafter'), 'Before & After is opt-in');
+  assert.ok(!defaultTune('15').styles.includes('rhyme'), 'Rhyme time is opt-in');
   assert.ok(!defaultTune('adults').styles.includes('hints'));
   assert.equal(defaultTune('').level, 0);
   for (const a of ['5', '8', '11', '15', '30']) assert.ok(defaultTune(a).styles.includes('facts'));

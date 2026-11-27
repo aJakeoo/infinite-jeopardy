@@ -27,8 +27,9 @@ function asQuestion(response) {
 // Normalises a board and reports problems. Hard errors make the board unusable.
 export function validateBoard(raw, size, maxClue = 200) {
   const { cols, rows } = SIZES[size] || SIZES['6x5'];
-  const hard = [], soft = [];
-  if (!raw || !Array.isArray(raw.categories)) return { board: null, hard: ['No categories came back.'], soft };
+  const hard = [], soft = [], fixable = []; // fixable: problems tied to one clue, which a targeted rewrite can fix
+  const flag = (c, r, msg) => { hard.push(msg); fixable.push({ c, r, msg }); };
+  if (!raw || !Array.isArray(raw.categories)) return { board: null, hard: ['No categories came back.'], soft, fixable };
   if (raw.categories.length < cols) hard.push(`Expected ${cols} categories, got ${raw.categories.length}.`);
   const categories = raw.categories.slice(0, cols).map((cat, ci) => {
     const clues = Array.isArray(cat && cat.clues) ? cat.clues : [];
@@ -45,14 +46,14 @@ export function validateBoard(raw, size, maxClue = 200) {
     seenCats.add(k);
     cat.clues.forEach((cl, ri) => {
       const where = `${cat.name} #${ri + 1}`;
-      if (!cl.clue || cl.clue.length < 12) hard.push(`${where}: clue is missing or too short.`);
-      if (!cl.response) hard.push(`${where}: response is missing.`);
-      if (cl.clue.length > Math.max(60, Math.round(maxClue * 1.35))) hard.push(`${where}: clue is ${cl.clue.length} characters; keep it under ${maxClue} for this audience.`);
+      if (!cl.clue || cl.clue.length < 12) flag(ci, ri, `${where}: clue is missing or too short.`);
+      if (!cl.response) flag(ci, ri, `${where}: response is missing.`);
+      if (cl.clue.length > Math.max(60, Math.round(maxClue * 1.35))) flag(ci, ri, `${where}: clue is ${cl.clue.length} characters; keep it under ${maxClue} for this audience.`);
       else if (cl.clue.length > maxClue) soft.push(`${where}: clue is long for this audience.`);
       const core = coreAnswer(cl.response).toLowerCase();
-      if (core.length >= 4 && cl.clue.toLowerCase().includes(core)) hard.push(`${where}: the clue gives away the answer "${coreAnswer(cl.response)}".`);
+      if (core.length >= 4 && cl.clue.toLowerCase().includes(core)) flag(ci, ri, `${where}: the clue gives away the answer "${coreAnswer(cl.response)}".`);
       if (core) {
-        if (seenAns.has(core)) hard.push(`${where}: same answer as ${seenAns.get(core)}.`);
+        if (seenAns.has(core)) flag(ci, ri, `${where}: same answer as ${seenAns.get(core)}.`);
         else seenAns.set(core, where);
       }
     });
@@ -61,10 +62,10 @@ export function validateBoard(raw, size, maxClue = 200) {
   if (raw.final && raw.final.clue && raw.final.response) {
     final = { category: clean(raw.final.category, 40) || 'Final Jeopardy', clue: clean(raw.final.clue, 260), response: asQuestion(raw.final.response) };
     const core = coreAnswer(final.response).toLowerCase();
-    if (core.length >= 4 && final.clue.toLowerCase().includes(core)) hard.push('Final: the clue gives away the answer.');
+    if (core.length >= 4 && final.clue.toLowerCase().includes(core)) flag(-1, -1, 'Final: the clue gives away the answer.');
   } else soft.push('No Final Jeopardy clue.');
   const board = { title: clean(raw.title, 60), categories, final };
-  return { board: hard.length ? null : board, hard, soft, draft: board };
+  return { board: hard.length ? null : board, hard, soft, fixable, draft: board };
 }
 
 /* ---------------- demo boards (used when no AI key is configured) ---------------- */
@@ -226,44 +227,77 @@ export async function generateBoard(env, req, deps = {}) {
     final: z.object({ category: z.string(), clue: z.string(), response: z.string() }),
   });
   const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 150_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
-  let feedback = null;
-  const ATTEMPTS = 3;
-  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    const lastTry = attempt === ATTEMPTS - 1;
-    let res;
-    try {
-      res = await client.messages.parse({
-        model: MODEL,
-        max_tokens: 16000, // Haiku 5.5 thinks by default and thinking counts toward this cap
-        // Thinking off: in live tests Haiku 5.5's thinking sometimes ran past 16k tokens on adult boards and was slow;
-        // the board checker and retries catch the mistakes thinking would have caught.
-        thinking: { type: 'disabled' },
-        system: SYSTEM,
-        messages: [{ role: 'user', content: userPrompt({ topic, age, size, tune }, feedback) }],
-        output_config: { effort: 'low', format: zodOutputFormat(Schema) },
-      });
-    } catch (e) {
+  const FixSchema = z.object({ fixes: z.array(z.object({ id: z.number(), clue: z.string(), response: z.string() })) });
+  const MAX_CALLS = 3;
+  let calls = 0, feedback = null, cutOff = false, last = null;
+  const call = async (params) => {
+    calls++;
+    try { return await client.messages.parse({ model: MODEL, system: SYSTEM, ...params }); }
+    catch (e) {
       if (e && e.status === 429) throw new UserError('The AI is busy right now. Try again in a minute.');
       if (e && (e.status === 401 || e.status === 403)) throw new UserError('The AI key was rejected. Check the ANTHROPIC_API_KEY secret.');
-      throw new UserError('Could not reach the AI. Try again.');
+      if (e && e.status) throw new UserError('Could not reach the AI. Try again.');
+      return null; // a reply that did not fit the schema: treat like a bad attempt
     }
-    if (res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
-    if (res.stop_reason === 'max_tokens' || !res.parsed_output) {
-      console.warn(`board attempt ${attempt + 1}: stop_reason=${res.stop_reason}, parsed=${!!res.parsed_output}`);
+  };
+  const keep = (v) => ({ ...v.draft, topic, age, band, demo: false });
+  const dupOnly = (v) => v && v.draft && v.hard.length && v.hard.every((h) => /same answer as/.test(h));
+  while (calls < MAX_CALLS) {
+    const res = await call({
+      max_tokens: 16000, // Haiku 5.5 thinks by default and thinking counts toward this cap
+      // Thinking helps fact quality, but it once ran past the cap on a wordplay-heavy board; if that happens, write straight out.
+      ...(cutOff ? { thinking: { type: 'disabled' } } : {}),
+      messages: [{ role: 'user', content: userPrompt({ topic, age, size, tune }, feedback) }],
+      output_config: { effort: 'low', format: zodOutputFormat(Schema) },
+    });
+    if (res && res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
+    if (!res || res.stop_reason === 'max_tokens' || !res.parsed_output) {
+      console.warn(`board call ${calls}: stop_reason=${res && res.stop_reason}, parsed=${!!(res && res.parsed_output)}`);
+      cutOff = cutOff || !!(res && res.stop_reason === 'max_tokens');
       feedback = ['The answer was cut off or was not valid JSON. Keep clues shorter.'];
       continue;
     }
-    const v = validateBoard(res.parsed_output, size, maxClue);
+    let v = validateBoard(res.parsed_output, size, maxClue);
     if (v.board) return { ...v.board, topic, age, band, demo: false };
-    // On the last try, a repeated answer is a small flaw; a missing board stops the game. Keep the board.
-    if (lastTry && v.draft && v.hard.every((h) => /same answer as/.test(h))) {
-      console.warn(`board attempt ${attempt + 1} kept with repeats (${band}): ${v.hard.join(' | ')}`);
-      return { ...v.draft, topic, age, band, demo: false };
+    console.warn(`board call ${calls} needs work (${band}): ${v.hard.join(' | ')}`);
+    // A few bad clues: rewrite just those instead of the whole board (a full rewrite tends to make new mistakes).
+    if (v.fixable.length && v.fixable.length === v.hard.length && v.fixable.length <= 12 && calls < MAX_CALLS) {
+      const fixed = await repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune });
+      if (fixed) {
+        const v2 = validateBoard(fixed, size, maxClue);
+        if (v2.board) return { ...v2.board, topic, age, band, demo: false };
+        console.warn(`repair call ${calls} left (${band}): ${v2.hard.join(' | ')}`);
+        v = v2;
+      }
     }
-    console.warn(`board attempt ${attempt + 1} rejected (${band}): ${v.hard.join(' | ')}`);
+    last = v;
     feedback = v.hard;
   }
+  // Out of calls: a repeated answer is a small flaw, a missing board stops the game.
+  if (dupOnly(last)) { console.warn(`board kept with repeats (${band}): ${last.hard.join(' | ')}`); return keep(last); }
   throw new UserError('The AI board had problems. Try again or tweak the topic.');
+}
+
+// Rewrites only the clues the checker flagged, keeping the rest of the board.
+async function repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune }) {
+  const b = structuredClone(v.draft);
+  const items = v.fixable.map((f, id) => {
+    const cat = f.c < 0 ? null : b.categories[f.c];
+    const cl = f.c < 0 ? b.final : cat.clues[f.r];
+    return { id, f, text: `[${id}] ${f.c < 0 ? `Final Jeopardy (${b.final.category})` : `${cat.name}, $${(f.r + 1) * 200}`}. Problem: ${f.msg}\n    Old clue: ${cl.clue}\n    Old response: ${cl.response}` };
+  });
+  const taken = new Set();
+  b.categories.forEach((c) => c.clues.forEach((x) => taken.add(coreAnswer(x.response))));
+  const prompt = `Replace these clues on a board about: ${topic}\n\n${audiencePrompt(age, tune).text}\n\nFor each one, write a new clue and response for the same category and the same difficulty. The clue must never contain the answer or a form of it. Every new response must be different from all of these responses already on the board: ${[...taken].join('; ')}.\n\n${items.map((i) => i.text).join('\n')}`;
+  const res = await call({ max_tokens: 6000, thinking: { type: 'disabled' }, messages: [{ role: 'user', content: prompt }], output_config: { effort: 'low', format: zodOutputFormat(FixSchema) } });
+  if (!res || !res.parsed_output || !Array.isArray(res.parsed_output.fixes)) return null;
+  for (const fx of res.parsed_output.fixes) {
+    const it = items.find((i) => i.id === fx.id);
+    if (!it || !fx.clue || !fx.response) continue;
+    if (it.f.c < 0) { b.final.clue = fx.clue; b.final.response = fx.response; }
+    else b.categories[it.f.c].clues[it.f.r] = { clue: fx.clue, response: fx.response };
+  }
+  return b;
 }
 
 export class UserError extends Error {}

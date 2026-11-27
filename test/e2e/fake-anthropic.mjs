@@ -14,6 +14,12 @@ http.createServer((req, res) => {
     n++;
     log.push({ path: req.url, headers: { auth: req.headers['x-api-key'] || req.headers.authorization, 'anthropic-version': req.headers['anthropic-version'] }, body: j });
     fs.writeFileSync('test/e2e/out/ai-requests.json', JSON.stringify(log, null, 2));
+    if (/Replace these clues/.test(JSON.stringify(j.messages))) {
+      const fixes = { fixes: [{ id: 0, clue: 'This eight-armed sea animal squirts ink to escape.', response: 'What is an octopus?' }] };
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: `msg_${n}`, type: 'message', role: 'assistant', model: j.model, content: [{ type: 'text', text: JSON.stringify(fixes) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 400, output_tokens: 60 } }));
+      return;
+    }
     const size = /Categories: 4/.test(JSON.stringify(j.messages)) ? '4x4' : '6x5';
     const b = demoBoard('ocean', size);
     const out = { title: 'Fake AI Ocean', categories: b.categories, final: b.final };

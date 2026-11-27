@@ -4,7 +4,7 @@ A Jeopardy-style party game where an AI writes the board. One screen (TV or lapt
 everyone buzzes in on their phone, and an optional host phone sees every answer.
 
 - **Theme:** Horizon. Painted peach sky and a grainy blue hill, set in Newsreader and Instrument Sans.
-- **AI:** Claude Haiku 5.5 writes 6 categories x 5 clues (or a quick 4 x 4) plus Final Jeopardy, about $0.002 per board.
+- **AI:** Claude Haiku 5.5 writes 6 categories x 5 clues (or a quick 4 x 4) plus Final Jeopardy, about $0.002 to $0.01 per board.
   With no API key the game still runs on two built-in demo boards.
 - **Hosting:** one Cloudflare Worker serves the site, runs the rooms (Durable Objects + WebSockets) and talks to the AI.
 
@@ -31,6 +31,12 @@ Setup and deploy steps: **[SETUP.md](SETUP.md)**.
 7. Two Daily Doubles on a classic board (one on a quick board): the player in control wagers on their phone.
 8. Final Jeopardy: everyone above $0 wagers and types an answer on their phone, then the TV reveals them lowest score first.
 9. Every board gets a 6-character code so it can be played again later for free.
+
+**As an app.** On an iPhone, open `/play` in Safari, tap Share, then Add to Home Screen (the join screen has a
+"Get the app" link with these steps; Android shows an install prompt). Inside the app, **Scan the TV's QR** uses the
+camera to join, or to open the host controls when it is the host QR; the iPhone Camera app would open Safari instead.
+"Back to hosting" brings the host straight back. The TV and host phone mirror each other: setup choices, the typed
+topic, and every game step show on both.
 
 The host phone can do everything the TV can: set up the board (topic, dice, ages, difficulty, styles, size,
 teams, board codes), remove players, pick clues, open buzzers, reveal, choose who answers, judge, fix scores
@@ -60,7 +66,9 @@ npm install
 npm run dev            # http://127.0.0.1:8787 (local Durable Objects, no Cloudflare account needed)
 npm test               # 38 rule and tuning tests
 npm run e2e            # plays full games in Chrome: TV + iPhones + host (needs npm run dev running)
-node test/e2e/host.mjs # the host phone sets up and runs a game on its own
+node test/e2e/host.mjs # the host phone sets up and runs a game, QR scanning, PWA files
+node test/e2e/live.mjs <url>  # on a deployed site: buzz line with 4 phones and 2 real AI boards
+node test/e2e/probe.mjs <url> kids space  # one real AI board, printed
 ```
 
 AI path without a real key: run `node test/e2e/fake-anthropic.mjs`, start a second dev server with

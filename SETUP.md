@@ -63,12 +63,22 @@ Paste this where the game should appear on jakejuip.xyz (swap in the workers.dev
 The game only allows itself to be framed by `jakejuip.xyz` and its subdomains (see `public/_headers`).
 Phones should always use the real link (`/play`), not the embed.
 
-## 5. Updating later
+## 5. The phone app
+
+Nothing to set up: the site is already an installable app (PWA). On an iPhone, open the `/play` link in Safari, tap
+**Share**, then **Add to Home Screen**. Inside the app, use **Scan the TV's QR** to join or to host.
+
+## 6. Updating later
 
 After any change: `npm test`, then `npx wrangler deploy`. Rooms in progress survive a deploy.
 
+## Watching the AI
+
+`npx wrangler tail --format pretty` streams live logs. Boards that needed fixing show up as `board call ... needs work`
+with the reasons; a board that failed every try is rare and shows the players a "try again" message.
+
 ## What it costs
 
-- **AI:** about $0.002 per board (two attempts at most), capped by your Anthropic spend limit.
+- **AI:** about $0.002 to $0.01 per board (up to three calls, including small clue repairs), capped by your Anthropic spend limit.
 - **Cloudflare:** the free Workers plan, including SQLite-backed Durable Objects, should cover family game nights.
   Check Workers & Pages, `infinite-jeopardy`, Metrics if it ever gets busy.

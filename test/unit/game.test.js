@@ -69,16 +69,22 @@ test('no API key falls back to a demo board', async () => {
   await assert.rejects(generateBoard({}, { topic: '  ', size: '6x5' }));
 });
 
-test('AI path: retries once with feedback, then accepts a valid board', async () => {
+test('AI path: a leaked answer is fixed by rewriting just that clue', async () => {
   const good = demoBoard('1800s', '6x5');
   const leaky = structuredClone(good);
   leaky.categories[0].clues[0].clue = 'George Stephenson built this.';
   const calls = [];
-  const client = { messages: { parse: async (req) => { calls.push(req); return { stop_reason: 'end_turn', parsed_output: calls.length === 1 ? leaky : good }; } } };
+  const client = { messages: { parse: async (req) => {
+    calls.push(req);
+    if (/Replace these clues/.test(req.messages[0].content)) return { stop_reason: 'end_turn', parsed_output: { fixes: [{ id: 0, clue: 'His locomotive Rocket won the 1829 Rainhill Trials.', response: 'Who is George Stephenson?' }] } };
+    return { stop_reason: 'end_turn', parsed_output: leaky };
+  } } };
   const b = await generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: '1800s', size: '6x5' }, { client });
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 2, 'one board call, one small repair call');
   assert.equal(calls[0].model, 'claude-haiku-5-5');
   assert.match(calls[1].messages[0].content, /gives away/);
+  assert.match(b.categories[0].clues[0].clue, /Rainhill/);
+  assert.equal(b.categories[1].clues[0].clue, good.categories[1].clues[0].clue, 'the rest of the board is kept');
   assert.equal(b.demo, false);
 });
 
@@ -435,8 +441,8 @@ test('AI path: a cut-off attempt is retried, with thinking off', async () => {
   const client = { messages: { parse: async (req) => { calls.push(req); return calls.length === 1 ? { stop_reason: 'max_tokens', parsed_output: null } : { stop_reason: 'end_turn', parsed_output: good }; } } };
   const b = await generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: '1800s', size: '6x5' }, { client });
   assert.equal(calls.length, 2);
-  assert.deepEqual(calls[0].thinking, { type: 'disabled' });
-  assert.deepEqual(calls[1].thinking, { type: 'disabled' });
+  assert.equal(calls[0].thinking, undefined, 'first try thinks as usual');
+  assert.deepEqual(calls[1].thinking, { type: 'disabled' }, 'after a cut-off, write straight out');
   assert.ok(calls[0].max_tokens >= 16000);
   assert.equal(b.demo, false);
 });
