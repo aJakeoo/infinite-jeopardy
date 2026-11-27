@@ -1,6 +1,8 @@
 // Phone: the player buzzer (default) or the host remote (?role=host&key=...).
 import { Conn, storage, esc, money, put } from './net.js';
 import * as sfx from './sfx.js';
+import { rollTopic } from './topics.js';
+import { STYLES, STYLE_IDS, BANDS, LEVELS, AGE_PRESETS, bandFor, defaultTune, cleanTune, composeAges, splitAges } from './tuning.js';
 
 const $ = (id) => document.getElementById(id);
 const store = storage();
@@ -268,9 +270,12 @@ function bindPlayer() {
   if (ff) ff.addEventListener('submit', async (e) => {
     e.preventDefault();
     const r = await conn.request({ t: 'final-answer', text: $('final-in').value });
-    $('final-note').textContent = r.ok ? 'Sent. You can change it until time runs out.' : r.err;
-    $('final-note').className = r.ok ? 'ok-note' : 'err';
+    // No explanation needed: the button just says "Sent" until the answer is edited again.
+    $('final-note').textContent = r.ok ? '' : r.err;
+    const btn = ff.querySelector('button');
+    if (r.ok) { btn.textContent = 'Sent'; btn.classList.add('sent'); sfx.vibrate(30); }
   });
+  if (ff) $('final-in').addEventListener('input', () => { const btn = ff.querySelector('button'); btn.textContent = 'Send answer'; btn.classList.remove('sent'); });
   document.querySelectorAll('[data-team]').forEach((b) => b.addEventListener('click', async () => {
     chosenTeam = b.dataset.team;
     const m = me();
@@ -285,11 +290,14 @@ function padState() {
   const out = c.lockedOut.includes(eid);
   if (S.phase === 'answering') {
     if (c.winner === PID) return { cls: 'won', l: 'You’re up!', s: 'Answer out loud' };
+    const spot = (c.queue || []).indexOf(PID);
+    if (spot > 0 && !out) return { cls: 'lost queued', l: `#${spot + 1}`, s: 'You’re next if they miss' };
+    if (!out && spot < 0 && (c.queue || []).length < 4 && !isTeams()) return { cls: 'live', l: 'Buzz', s: `${playerName(c.winner)} is answering` };
     if (isTeams() && myEid() === (S.players.find((p) => p.id === c.winner) || {}).team) return { cls: 'won', l: 'Your team!', s: `${playerName(c.winner)} answers` };
     return { cls: out ? 'out' : 'lost', l: playerName(c.winner), s: out ? 'You’re out this round' : 'buzzed first' };
   }
   if (out) return { cls: 'out', l: 'Out', s: 'Wrong answer. Wait for the next clue.' };
-  if (myBuzz === c.id && S.phase === 'open') return { cls: 'live pressed', l: 'Buzzed!', s: 'Checking who was first...' };
+  if (myBuzz === `${c.id}-${c.round}` && S.phase === 'open') return { cls: 'live pressed', l: 'Buzzed!', s: 'Checking who was first...' };
   const openNow = S.phase === 'open' || (S.phase === 'reading' && c.openAt && now >= c.openAt);
   if (openNow) return { cls: 'live', l: 'Buzz', s: 'Tap anywhere' };
   return { cls: 'wait', l: 'Buzz', s: 'Wait for it...' };
@@ -307,12 +315,13 @@ function updatePad() {
 }
 async function doBuzz() {
   sfx.unlock();
-  if (!S || !S.current || !['reading', 'open'].includes(S.phase)) return;
+  if (!S || !S.current || !['reading', 'open', 'answering'].includes(S.phase)) return;
   const c = S.current;
-  if (myBuzz === c.id || c.lockedOut.includes(myEid())) return;
+  if (S.phase === 'answering' && (c.winner === PID || (c.queue || []).includes(PID))) return;
+  if (myBuzz === `${c.id}-${c.round}` || c.lockedOut.includes(myEid())) return;
   const localOpen = c.openAt - conn.offset;
   const reaction = Date.now() - localOpen;
-  myBuzz = c.id;
+  myBuzz = `${c.id}-${c.round}`;
   updatePad();
   const r = await conn.request({ t: 'buzz', reaction });
   if (!r.ok) {
@@ -320,6 +329,7 @@ async function doBuzz() {
     if (r.reason === 'early') { toast('Too early! Wait for the buzzer to light up.', true); sfx.vibrate([30, 40, 30]); }
     else if (r.reason === 'penalty') toast('Too early. Locked for a moment.', true);
     else if (r.reason === 'locked') toast('You’re out for this clue.', true);
+    else if (r.reason === 'full') toast('The line is full.', true);
     updatePad();
   }
 }
@@ -340,8 +350,10 @@ function renderHost() {
   const ph = S.phase, c = S.current;
   let h = '';
   const btn = (act, label, cls = 'paper', extra = '') => `<button class="btn ${cls}" data-h="${act}" ${extra}>${label}</button>`;
-  if (ph === 'setup' || ph === 'generating') {
-    h = `<div class="card hcard"><p class="hstatus">${ph === 'generating' ? `Writing a board about “${esc(S.gen.topic)}”...` : 'Set up the board on the TV. You will see every answer here once it starts.'}</p></div>`;
+  if (ph === 'setup') { renderHostSetup(); return; }
+  hostSetupBuilt = false;
+  if (ph === 'generating') {
+    h = `<div class="card hcard"><span class="cat">Writing the board</span><p class="q">${esc(S.gen.topic)}</p><div class="hbar"><i></i></div></div><div class="hbtns">${btn('new-game', 'Cancel', 'line full')}</div>`;
   } else if (ph === 'board') {
     const b = S.board, cols = b.categories.length, rows = b.categories[0].clues.length;
     let g = b.categories.map((cat) => `<div class="hc">${esc(cat.name)}</div>`).join('');
@@ -355,7 +367,7 @@ function renderHost() {
     let status = '';
     if (ph === 'reading') status = 'Reading the clue. Buzzers open soon.';
     if (ph === 'open') status = c.lockedOut.length ? `Buzzers open. Out: ${c.lockedOut.map((e) => esc(nameOf(e))).join(', ')}` : 'Buzzers are open.';
-    if (ph === 'answering') status = `${esc(playerName(c.winner))} buzzed first${c.runnerUp ? ` (${c.runnerUp.ms} ms ahead of ${esc(playerName(c.runnerUp.pid))})` : ''}.`;
+    if (ph === 'answering') status = `${esc(playerName(c.winner))} is answering.`;
     if (ph === 'dd-wager') status = `Daily Double! Waiting for ${esc(nameOf(c.ddEntity))} to wager (${money(c.ddBounds.min)} to ${money(c.ddBounds.max)}).`;
     if (ph === 'dd-clue') status = `${esc(nameOf(c.ddEntity))} wagered ${money(c.wager)}.`;
     if (ph === 'reveal') status = c.result === 'correct' ? `${esc(nameOf(c.dd ? c.ddEntity : c.resultEid))} got it.` : 'Nobody got it.';
@@ -363,8 +375,9 @@ function renderHost() {
         <p class="q">${esc(c.clue || '')}</p><p class="a"><small>Answer</small>${esc(c.response || '')}</p><p class="hstatus">${status}</p></div>`;
     let b = '';
     if (ph === 'reading') b = btn('open', 'Open buzzers now') + btn('reveal', 'Skip and reveal');
-    if (ph === 'open') b = btn('reveal', 'Nobody knows, reveal', 'paper full');
-    if (ph === 'answering' || ph === 'dd-clue') b = btn('judge0', 'Incorrect', 'bad') + btn('judge1', 'Correct', 'primary') + (c.revealed ? '' : btn('reveal', 'Reveal answer on TV', 'line full'));
+    if (ph === 'open') b = hostLine(c) + btn('reveal', 'Nobody knows, reveal', 'paper full');
+    if (ph === 'answering') b = hostLine(c);
+    if (ph === 'answering' || ph === 'dd-clue') b += btn('judge0', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>', 'jb', 'aria-label="Incorrect"') + btn('judge1', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>', 'jb', 'aria-label="Correct"') + (c.revealed ? '' : btn('reveal', 'Reveal answer on TV', 'line full'));
     if (ph === 'reveal') b = btn('continue', S.tilesLeft <= 1 ? 'On to Final Jeopardy' : 'Back to the board', 'primary full');
     if (ph === 'dd-wager') b = `<form class="full" id="h-wager" style="display:flex;gap:8px"><input id="h-wager-in" inputmode="numeric" placeholder="Wager" style="flex:1;border-radius:12px;border:0;padding:14px;font-size:18px"><button class="btn primary">Set</button></form>`;
     h += `<div class="hbtns">${b}</div>`;
@@ -377,20 +390,108 @@ function renderHost() {
     if (ph === 'final-clue') b = btn('stop-final', 'Stop the clock', 'paper full');
     if (ph === 'final-judge') {
       const next = f.order.find((e) => f.judged[e] == null);
-      b = `<p class="sect full">Judging ${esc(nameOf(next))}: <i>${esc(f.responses[next] || 'no answer')}</i></p>` + btn('fjudge0', 'Incorrect', 'bad') + btn('fjudge1', 'Correct', 'primary') + (f.revealed ? '' : btn('reveal', 'Show answer on TV', 'line full'));
+      b = `<p class="sect full">Judging ${esc(nameOf(next))}: <i>${esc(f.responses[next] || 'no answer')}</i></p>` + btn('fjudge0', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>', 'jb', 'aria-label="Incorrect"') + btn('fjudge1', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>', 'jb', 'aria-label="Correct"') + (f.revealed ? '' : btn('reveal', 'Show answer on TV', 'line full'));
     }
     h += `<div class="hbtns">${b}</div>`;
   } else if (ph === 'over') {
     h = `<div class="card hcard"><p class="hstatus">Game over. ${S.board && S.board.shareCode ? `Board code ${esc(S.board.shareCode)}.` : ''}</p></div><div class="hbtns">${btn('new-game', 'New board', 'primary full')}</div>`;
   }
-  h += `<p class="sect">Scores</p><div class="adj">${entityList().map((e) => `<div class="row"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b><button data-adj="${e.id}" data-d="-200" aria-label="Take 200 from ${esc(e.name)}">−</button><button data-adj="${e.id}" data-d="200" aria-label="Give 200 to ${esc(e.name)}">+</button>${isTeams() ? '' : `<button class="x" data-kick="${e.id}" aria-label="Remove ${esc(e.name)}">&times;</button>`}</div>`).join('') || '<div class="row"><span>No players yet</span></div>'}</div>`;
+  if (ph !== 'generating') h += `<p class="sect">Scores</p><div class="adj">${entityList().map((e) => `<div class="row"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b><button data-adj="${e.id}" data-d="-200" aria-label="Take 200 from ${esc(e.name)}">−</button><button data-adj="${e.id}" data-d="200" aria-label="Give 200 to ${esc(e.name)}">+</button>${isTeams() ? '' : `<button class="x" data-kick="${e.id}" aria-label="Remove ${esc(e.name)}">&times;</button>`}</div>`).join('') || '<div class="row"><span>No players yet</span></div>'}</div>`;
+  if (isTeams() || ph === 'generating') h += playersBlock();
   if (!(document.activeElement && document.activeElement.id === 'h-wager-in')) put($('stagep'), h);
 }
 
+// Host: everyone who could answer, buzz order first. Tap a name to make them the one being judged.
+function hostLine(c) {
+  const q = c.queue || [];
+  const outOf = (pid) => c.lockedOut.includes(isTeams() ? (S.players.find((p) => p.id === pid) || {}).team : pid);
+  const rest = S.players.filter((p) => !q.includes(p.id)).map((p) => p.id);
+  const row = (pid, n) => `<button type="button" class="qrow${pid === c.winner ? ' on' : ''}${outOf(pid) ? ' out' : ''}" data-select="${esc(pid)}" ${outOf(pid) ? 'disabled' : ''}><b>${n || ''}</b><span>${esc(playerName(pid))}</span></button>`;
+  return `<div class="qlist full">${q.map((pid, i) => row(pid, i + 1)).join('')}${rest.map((pid) => row(pid, '')).join('')}</div>`;
+}
+
+/* host setup: everything the TV setup screen can do */
+let hostSetupBuilt = false, hostAgeTimer = null;
+const seg = (id, items, attr) => `<div class="hseg" id="${id}">${items.map(([v, l]) => `<button type="button" data-${attr}="${v}">${l}</button>`).join('')}</div>`;
+function playersBlock() {
+  return `<p class="sect">Players</p><div class="pchips">${S.players.map((p) => `<span class="pchip${p.connected ? '' : ' off'}">${esc(p.name)}${isTeams() && S.teams[p.team] ? ` <small>${esc(S.teams[p.team].name)}</small>` : ''}<button class="x" data-kick="${p.id}" aria-label="Remove ${esc(p.name)}">&times;</button></span>`).join('') || '<span class="pnone">Nobody yet</span>'}</div>`;
+}
+function renderHostSetup() {
+  if (!hostSetupBuilt) {
+    hostSetupBuilt = true;
+    put($('stagep'), `<form class="card hcard hsetup" id="hs-form" autocomplete="off">
+      <div class="hrow"><input id="hs-topic" maxlength="120" placeholder="Board topic" value="${esc(S.gen.topic || '')}"><button type="button" class="btn primary hdice" id="hs-dice" aria-label="Roll a random topic">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="26" height="26" rx="6"/><circle cx="10" cy="10" r="2.4"/><circle cx="22" cy="10" r="2.4"/><circle cx="16" cy="16" r="2.4"/><circle cx="10" cy="22" r="2.4"/><circle cx="22" cy="22" r="2.4"/></svg></button></div>
+      <span class="hl">Ages</span>
+      <div class="hchecks" id="hs-ages">${AGE_PRESETS.map(([id, r]) => `<label class="hchk"><input type="checkbox" data-band="${id}"><span>${esc(BANDS[id].label)} <small>${r}</small></span></label>`).join('')}</div>
+      <input id="hs-other" maxlength="30" placeholder="Other ages">
+      <span class="hl">Difficulty</span>${seg('hs-level', Object.entries(LEVELS).sort((a, b) => a[0] - b[0]), 'level')}
+      <details class="htune"><summary class="hl">Question styles</summary><div class="hchecks" id="hs-styles">${STYLE_IDS.map((id) => `<label class="hchk"><input type="checkbox" data-style="${id}"><span>${esc(STYLES[id].label)}</span></label>`).join('')}</div></details>
+      <span class="hl">Board</span>${seg('hs-size', [['6x5', 'Classic 6 × 5'], ['4x4', 'Quick 4 × 4']], 'size')}
+      <span class="hl">Play as</span>${seg('hs-mode', [['solo', 'Players'], ['teams', 'Teams']], 'mode')}
+      <div id="hs-teams-w"><span class="hl">Teams</span>${seg('hs-teams', [['2', '2'], ['3', '3'], ['4', '4']], 'teams')}</div>
+      <button class="btn primary wide" id="hs-make">Make the board</button>
+      <p class="err" id="hs-err"></p>
+      <div class="hrow"><input id="hs-code" maxlength="6" placeholder="Board code" autocapitalize="characters"><button type="button" class="btn line" id="hs-load">Load</button></div>
+    </form><div id="hs-players"></div>`);
+  }
+  const st = S.settings, t = cleanTune(st.tune, st.age || '');
+  if (document.activeElement !== $('hs-other') && !hostAgeTimer) {
+    const { bands, other } = splitAges(st.age || '');
+    document.querySelectorAll('#hs-ages input').forEach((x) => { x.checked = bands.includes(x.dataset.band); });
+    $('hs-other').value = other;
+  }
+  document.querySelectorAll('#hs-styles input').forEach((x) => { x.checked = t.styles.includes(x.dataset.style); });
+  const mark = (id, attr, val) => document.querySelectorAll(`#${id} button`).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset[attr] === String(val))));
+  mark('hs-level', 'level', t.level); mark('hs-size', 'size', st.size); mark('hs-mode', 'mode', st.mode); mark('hs-teams', 'teams', st.teams);
+  $('hs-teams-w').hidden = st.mode !== 'teams';
+  if (S.gen.status === 'error') $('hs-err').textContent = S.gen.error;
+  put($('hs-players'), playersBlock());
+}
+const hostAges = () => composeAges([...document.querySelectorAll('#hs-ages input')].filter((x) => x.checked).map((x) => x.dataset.band), $('hs-other').value);
+async function sendHostAges() {
+  clearTimeout(hostAgeTimer); hostAgeTimer = null;
+  const age = hostAges(), old = S.settings.age || '';
+  if (age === old) return;
+  const lvl = cleanTune(S.settings.tune, old).level;
+  // A new band re-ticks that band's styles, same rule as the TV.
+  fail(await conn.request({ t: 'settings', settings: bandFor(age) !== bandFor(old) ? { age, tune: { ...defaultTune(age), level: lvl } } : { age } }));
+}
+$('stagep').addEventListener('change', (e) => {
+  if (ROLE !== 'host' || !S || S.phase !== 'setup') return;
+  if (e.target.closest('#hs-ages')) sendHostAges();
+  if (e.target.closest('#hs-styles')) {
+    const styles = [...document.querySelectorAll('#hs-styles input')].filter((x) => x.checked).map((x) => x.dataset.style);
+    conn.request({ t: 'settings', settings: { tune: { ...cleanTune(S.settings.tune, S.settings.age || ''), styles } } }).then(fail);
+  }
+});
+$('stagep').addEventListener('input', (e) => {
+  if (ROLE !== 'host' || e.target.id !== 'hs-other') return;
+  clearTimeout(hostAgeTimer); hostAgeTimer = setTimeout(sendHostAges, 400);
+});
+$('stagep').addEventListener('submit', async (e) => {
+  if (e.target.id !== 'hs-form') return;
+  e.preventDefault();
+  const topic = $('hs-topic').value.trim();
+  if (!topic) { $('hs-err').textContent = 'Type a topic or roll the dice.'; return; }
+  $('hs-err').textContent = '';
+  await sendHostAges();
+  $('hs-make').disabled = true;
+  const r = await conn.request({ t: 'generate', topic, age: hostAges() });
+  if ($('hs-make')) $('hs-make').disabled = false;
+  if (!r.ok && $('hs-err')) $('hs-err').textContent = r.err;
+});
 $('stagep').addEventListener('click', async (e) => {
   if (ROLE !== 'host') return;
   const b = e.target.closest('button'); if (!b) return;
   sfx.unlock();
+  if (b.dataset.select) return fail(await conn.request({ t: 'select', pid: b.dataset.select }));
+  if (b.id === 'hs-dice') { $('hs-topic').value = rollTopic(hostAges()); return; }
+  if (b.id === 'hs-load') { const r = await conn.request({ t: 'load-board', code: $('hs-code').value.trim().toUpperCase() }); if (!r.ok) $('hs-err').textContent = r.err; return; }
+  if (b.dataset.level != null) return fail(await conn.request({ t: 'settings', settings: { tune: { ...cleanTune(S.settings.tune, S.settings.age || ''), level: Number(b.dataset.level) } } }));
+  if (b.dataset.size) return fail(await conn.request({ t: 'settings', settings: { size: b.dataset.size } }));
+  if (b.dataset.mode) return fail(await conn.request({ t: 'settings', settings: { mode: b.dataset.mode } }));
+  if (b.dataset.teams) return fail(await conn.request({ t: 'settings', settings: { teams: Number(b.dataset.teams) } }));
   if (b.dataset.pick) { const [c, r] = b.dataset.pick.split('-').map(Number); return fail(await conn.request({ t: 'pick', c, r })); }
   if (b.dataset.adj) return fail(await conn.request({ t: 'adjust', eid: b.dataset.adj, delta: Number(b.dataset.d) }));
   if (b.dataset.kick) { if (b.dataset.confirm) return fail(await conn.request({ t: 'kick', pid: b.dataset.kick })); b.dataset.confirm = '1'; b.textContent = '?'; return; }
@@ -406,9 +507,12 @@ $('stagep').addEventListener('submit', async (e) => {
 });
 
 /* ---------------- menu ---------------- */
+function closeSheet() { $('sheet').hidden = true; $('menu-btn').setAttribute('aria-expanded', 'false'); }
 $('menu-btn').addEventListener('click', () => {
   const sheet = $('sheet');
+  if (!sheet.hidden) { closeSheet(); return; }
   sheet.hidden = false;
+  $('menu-btn').setAttribute('aria-expanded', 'true');
   put($('sheet-card'), ROLE === 'host'
     ? `<h3>Host menu</h3><button class="btn paper wide" data-m="new">Start over with a new board</button><button class="btn line wide" data-m="close">Close</button>`
     : `<h3>Menu</h3><p>${esc(me() ? me().name : '')} in room ${esc(S ? S.code : '')}</p>
@@ -418,9 +522,9 @@ $('menu-btn').addEventListener('click', () => {
 });
 $('sheet').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-m]');
-  if (e.target === $('sheet') || (b && b.dataset.m === 'close')) { $('sheet').hidden = true; return; }
+  if (e.target === $('sheet') || (b && b.dataset.m === 'close')) { closeSheet(); return; }
   if (!b) return;
-  $('sheet').hidden = true;
+  closeSheet();
   if (b.dataset.m === 'leave') {
     await conn.request({ t: 'leave' });
     store.del('ij-player'); joined = false; joining = false;

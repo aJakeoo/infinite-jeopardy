@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { demoBoard } from '../../src/boards.js';
 const log = [];
 let n = 0;
+const DELAY = Number(process.env.FAKE_DELAY || 0); // ms, to watch the progress bar
 http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
@@ -18,7 +19,9 @@ http.createServer((req, res) => {
     const out = { title: 'Fake AI Ocean', categories: b.categories, final: b.final };
     // The first request ever gets a leaked answer so the retry-with-feedback path runs.
     if (n === 1) out.categories[0].clues[0].clue = 'An octopus has eight arms and can squirt ink.';
+    setTimeout(() => {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ id: `msg_${n}`, type: 'message', role: 'assistant', model: j.model, content: [{ type: 'text', text: JSON.stringify(out) }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 900, output_tokens: 2500 } }));
+    }, DELAY);
   });
 }).listen(8799, '127.0.0.1', () => console.log('fake anthropic on 8799'));

@@ -20,6 +20,7 @@ export const T = {
   OPEN_GRACE: 150,       // a buzz this close before openAt counts as on time (clock drift)
   FINAL_MS: 30000,
   LATENCY_SLACK: 80,
+  QUEUE_MAX: 4, // how many buzzes line up to answer in turn
 };
 export const LIMITS = { PLAYERS: 24, NAME: 16, RESPONSE: 80, TOPIC: 120, AGE: 30 };
 export const TEAM_NAMES = ['Sky', 'Hill', 'Dune', 'Tide'];
@@ -156,7 +157,14 @@ export function removePlayer(s, pid, now) {
   delete s.players[pid];
   if (!isTeams(s) && s.control === pid) s.control = null;
   if (s.current) {
-    if (s.current.winner === pid) { s.current.winner = null; if (s.phase === 'answering') reopenOrReveal(s, now); }
+    const cur = s.current;
+    cur.queue = (cur.queue || []).filter((q) => q !== pid);
+    if (cur.winner === pid) {
+      cur.winner = null;
+      // The next person in line answers; with nobody left, the buzzers reopen.
+      const next = cur.queue.find((q) => s.players[q] && q !== pid && !cur.lockedOut.includes(entityOf(s, q)));
+      if (s.phase === 'answering') { if (next) cur.winner = next; else reopenOrReveal(s, now); }
+    }
     s.current.buzzes = (s.current.buzzes || []).filter((b) => b.pid !== pid);
     if (!isTeams(s) && s.current.ddEntity === pid) s.current.ddEntity = null;
   }
@@ -215,7 +223,7 @@ export function pick(s, c, r, now) {
   s.current = {
     id: s.seq + 1, c, r, value: valueFor(r), dd: !!clue.dd,
     openAt: null, closesAt: null, windowEnd: null,
-    buzzes: [], lockedOut: [], penalty: {}, winner: null, revealed: false,
+    buzzes: [], queue: [], round: 0, lockedOut: [], penalty: {}, winner: null, revealed: false,
     result: null, wager: null, ddEntity: null, by: null,
   };
   if (clue.dd) {
@@ -248,6 +256,8 @@ function goOpen(s, now) {
   s.current.closesAt = now + T.OPEN_MS;
   s.current.windowEnd = null;
   s.current.buzzes = [];
+  s.current.queue = [];
+  s.current.round = (s.current.round || 0) + 1;
   event(s, 'open', {}, now);
 }
 
@@ -269,6 +279,16 @@ export function buzz(s, pid, reported, rttHalf, now) {
   if (s.phase === 'reading') {
     cur.penalty[pid] = now + T.EARLY_PENALTY;
     return { ok: false, reason: 'early' };
+  }
+  if (s.phase === 'answering' && cur) {
+    // Someone is answering: later buzzes line up behind them, up to QUEUE_MAX people.
+    if (cur.lockedOut.includes(eid)) return { ok: false, reason: 'locked' };
+    if (cur.queue.includes(pid)) return { ok: true, reason: 'dupe' };
+    if (cur.queue.some((q) => entityOf(s, q) === eid)) return { ok: false, reason: 'teammate' };
+    if (cur.queue.length >= T.QUEUE_MAX) return { ok: false, reason: 'full' };
+    cur.queue.push(pid);
+    event(s, 'queue', { pid }, now);
+    return { ok: true, reason: 'queued' };
   }
   if (s.phase !== 'open') return { ok: false, reason: 'closed' };
   if (cur.lockedOut.includes(eid)) return { ok: false, reason: 'locked' };
@@ -294,6 +314,8 @@ function resolveBuzz(s, now) {
   valid.sort((a, b) => a.reaction - b.reaction || a.at - b.at);
   const w = valid[0];
   cur.winner = w.pid;
+  const seen = new Set();
+  cur.queue = valid.filter((b) => !seen.has(b.eid) && seen.add(b.eid)).slice(0, T.QUEUE_MAX).map((b) => b.pid);
   cur.runnerUp = valid[1] ? { pid: valid[1].pid, ms: Math.round(valid[1].reaction - w.reaction) } : null;
   s.phase = 'answering';
   event(s, 'buzz', { pid: w.pid }, now);
@@ -304,7 +326,8 @@ function reopenOrReveal(s, now) {
   if (!cur.revealed && eligibleToBuzz(s).size > 0) {
     s.phase = 'open';
     cur.closesAt = now + T.REOPEN_MS;
-    cur.windowEnd = null; cur.buzzes = [];
+    cur.windowEnd = null; cur.buzzes = []; cur.queue = [];
+    cur.round = (cur.round || 0) + 1;
     event(s, 'open', {}, now);
   } else {
     s.phase = 'reveal';
@@ -347,7 +370,9 @@ export function judge(s, correct, now) {
       cur.winner = null;
       cur.result = 'incorrect';
       event(s, 'incorrect', { pid, eid, delta: -cur.value }, now);
-      reopenOrReveal(s, now);
+      const next = cur.queue.find((q) => s.players[q] && !cur.lockedOut.includes(entityOf(s, q)));
+      if (next) { cur.winner = next; event(s, 'buzz', { pid: next, next: true }, now); }
+      else reopenOrReveal(s, now);
     }
     return OK;
   }
@@ -363,6 +388,19 @@ export function judge(s, correct, now) {
     return OK;
   }
   return err('Nobody is answering right now.');
+}
+
+// The host (or TV) taps a name: that player is the one being judged now.
+export function select(s, pid, now) {
+  const cur = s.current;
+  if (!cur || !['open', 'answering'].includes(s.phase)) return err('Nobody can answer right now.');
+  if (!s.players[pid]) return err('That player is not in the game.');
+  if (cur.lockedOut.includes(entityOf(s, pid))) return err('They already answered this one.');
+  if (!cur.queue.includes(pid)) cur.queue.push(pid);
+  cur.winner = pid;
+  if (s.phase === 'open') { s.phase = 'answering'; cur.windowEnd = null; cur.buzzes = []; }
+  event(s, 'buzz', { pid, picked: true }, now);
+  return OK;
 }
 
 export function continueGame(s, now) {
@@ -551,6 +589,7 @@ export function view(s, role, pid) {
       clue: showClue ? clue.clue : null,
       response: host || cur.revealed ? clue.response : null,
       openAt: cur.openAt, closesAt: cur.closesAt, winner: cur.winner, runnerUp: cur.runnerUp || null,
+      queue: cur.queue || [], round: cur.round || 0,
       lockedOut: cur.lockedOut, revealed: cur.revealed, result: cur.result, resultEid: cur.resultEid ?? null,
       wager: cur.wager, ddEntity: cur.ddEntity,
       ddBounds: cur.ddEntity != null ? ddBounds(s, cur.ddEntity) : null,

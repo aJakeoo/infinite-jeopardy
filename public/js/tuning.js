@@ -49,6 +49,30 @@ export const BANDS = {
   },
 };
 
+// The age dropdown: one checkbox per band plus an "Other" text box, stored together as one string.
+export const AGE_PRESETS = [['little', '4-6'], ['kids', '7-9'], ['tweens', '10-12'], ['teens', '13-17'], ['adults', '18+']];
+export function composeAges(bandIds, other) {
+  const parts = AGE_PRESETS.filter(([id]) => bandIds.includes(id)).map(([, r]) => r);
+  const o = String(other || '').trim();
+  if (o) parts.push(o);
+  return parts.join(', ').slice(0, 30);
+}
+export function splitAges(text) {
+  const bands = [], rest = [];
+  for (const part of String(text || '').split(',').map((x) => x.trim()).filter(Boolean)) {
+    const p = AGE_PRESETS.find(([, r]) => r === part);
+    if (p) bands.push(p[0]); else rest.push(part);
+  }
+  return { bands, other: rest.join(', ') };
+}
+export function agesLabel(text) {
+  const { bands, other } = splitAges(text);
+  const names = bands.map((id) => BANDS[id].label);
+  if (other) names.push(other);
+  if (!names.length) return 'Any age';
+  return names.length > 2 ? `${names[0]} + ${names.length - 1} more` : names.join(', ');
+}
+
 export function bandFor(ageText) {
   const a = parseAge(ageText);
   if (a == null) return 'adults';

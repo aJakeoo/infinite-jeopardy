@@ -1,8 +1,6 @@
 /* Infinite Jeopardy / Horizon theme.
-   Painted-sky scene: dusty peach sky, a grainy blue hill, a tiny walker on the ridge.
+   Painted-sky scene: dusty peach sky and a grainy blue hill.
    Shared by the TV (index.html) and phones (play.html). */
-@font-face { font-family: "JakeFont"; src: url("../fonts/JakeFont-Regular.ttf") format("truetype"); font-display: swap; }
-
 :root {
   --dust: #a69a92; --sand: #c7b4a2; --peach: #e4b48d; --peach-2: #e9b78e;
   --hill-hi: #4d7eae; --hill: #2c5885; --hill-mid: #193e63; --hill-deep: #10294a;
@@ -10,7 +8,6 @@
   --rust: #9b3a24; --rust-soft: #f1d6cb; --gold: #c98a3d;
   --f-display: "Newsreader", Georgia, "Times New Roman", serif;
   --f-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --f-logo: "JakeFont", "Newsreader", Georgia, serif;
   --ease: cubic-bezier(.22, .8, .24, 1);
   color-scheme: light;
 }
@@ -21,7 +18,8 @@ button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 [hidden] { display: none !important; }
 :focus-visible { outline: 3px solid var(--paper); outline-offset: 3px; box-shadow: 0 0 0 6px rgba(31, 58, 92, .55); }
-.logo { font-family: var(--f-logo); font-weight: 400; -webkit-text-stroke: .035em currentColor; letter-spacing: .02em; white-space: nowrap; }
+.logo { font-family: var(--f-display); font-weight: 400; letter-spacing: -.02em; white-space: nowrap; }
+.logo i { font-style: italic; font-weight: 300; }
 .num { font-variant-numeric: tabular-nums lining-nums; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -43,18 +41,11 @@ button { cursor: pointer; }
     radial-gradient(ellipse 60% 40% at 50% 0%, var(--hill), var(--hill-mid) 55%, var(--hill-deep) 85%); }
 .scene .near::after { content: ""; position: absolute; inset: 0; border-radius: 50%; opacity: .5; mix-blend-mode: soft-light;
   background-image: repeating-radial-gradient(ellipse 50% 50% at 50% 0%, rgba(255,255,255,.0) 0 7px, rgba(255,255,255,.12) 7px 8px); }
-.scene .walker { position: absolute; left: 58%; top: .4%; width: 9px; height: 26px; translate: -50% -100%; transition: left 1.3s var(--ease); }
-.scene .walker::before { content: ""; position: absolute; left: 50%; top: 0; width: 7px; height: 7px; border-radius: 50%; background: #1c1a1a; translate: -50% 0; }
-.scene .walker::after { content: ""; position: absolute; left: 50%; top: 6px; width: 5px; height: 20px; border-radius: 2px; background: #1c1a1a; translate: -50% 0; rotate: 5deg; }
 .scene .grain { position: absolute; inset: -50%; opacity: .55; mix-blend-mode: multiply;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .42 0 0 0 0 .36 0 0 0 .32 0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E"); }
 .scene .speck { position: absolute; inset: 0; opacity: .35; mix-blend-mode: screen;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .18 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
-/* walking along the ridge while the AI writes */
-.scene.walking .walker { animation: walk 2.2s ease-in-out infinite alternate, bob .45s ease-in-out infinite alternate; }
-@keyframes walk { from { left: 48%; } to { left: 56%; } }
-@keyframes bob { from { translate: -50% -100%; } to { translate: -50% -104%; } }
 
 /* buttons that sit on paper or on the hill */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5em; border: 0; border-radius: 999px; padding: .7em 1.4em;
@@ -73,6 +64,5 @@ button { cursor: pointer; }
 .on-hill .kbd, .btn.primary .kbd, .btn.bad .kbd { background: rgba(255, 255, 255, .18); }
 
 @media (prefers-reduced-motion: reduce) {
-  .scene .cloud, .scene.walking .walker { animation: none; }
-  .scene .hill, .scene .walker { transition: none; }
-}
+  .scene .cloud { animation: none; }
+  .scene .hill, }

@@ -17,7 +17,7 @@
 <div class="scene" id="scene" aria-hidden="true">
   <div class="haze"></div><div class="cloud c1"></div><div class="cloud c2"></div>
   <div class="hill far"></div>
-  <div class="hill near"><div class="walker"></div></div>
+  <div class="hill near"></div>
   <div class="grain"></div><div class="speck"></div>
 </div>
 
@@ -25,15 +25,14 @@
   <!-- HOME -->
   <section class="screen" id="s-home" data-pose="home">
     <div class="home">
-      <p class="eyebrow">A Jeopardy-style game for any topic</p>
-      <h1 class="logo home-logo">Infinite Jeopardy</h1>
-      <p class="home-sub">Put this screen on the TV. Everyone buzzes in on their phone.</p>
+      <h1 class="logo home-logo">Infinite <i>Jeopardy</i></h1>
+      <p class="home-sub">Any topic. Phones are the buzzers.</p>
       <div class="home-actions">
         <button class="btn primary big" id="start">Start a game</button>
         <button class="btn paper big" id="resume" hidden>Resume room <span id="resume-code"></span></button>
       </div>
       <p class="home-note" id="home-err" role="alert"></p>
-      <p class="home-small">Playing on a phone? Go to <b id="play-url">/play</b></p>
+      <p class="home-small">On a phone? <b id="play-url">/play</b></p>
     </div>
   </section>
 
@@ -49,9 +48,14 @@
         </button>
       </div>
       <div class="row2 age-row">
-        <div class="field">
-          <label for="age">Ages <span class="opt">optional</span></label>
-          <input id="age" name="age" maxlength="30" placeholder="e.g. 10-12, teens, adults">
+        <div class="field ages" id="ages">
+          <span class="lab" id="ages-l">Ages <span class="opt">optional</span></span>
+          <button type="button" class="dd-btn" id="ages-btn" aria-haspopup="true" aria-expanded="false" aria-labelledby="ages-l ages-btn"><span id="ages-sum">Any age</span><svg viewBox="0 0 12 8" aria-hidden="true"><path d="M1 1.5l5 5 5-5"/></svg></button>
+          <div class="dd-pop card" id="ages-pop" hidden>
+            <div class="checks col" id="age-checks"></div>
+            <label class="other" for="age">Other</label>
+            <input id="age" name="age" maxlength="30" placeholder="e.g. 8 and 40, grandparents">
+          </div>
         </div>
         <div class="field"><span class="lab" id="level-l">Difficulty</span>
           <div class="seg" role="radiogroup" aria-labelledby="level-l" id="level-seg">
@@ -95,7 +99,8 @@
     <div class="gen">
       <p class="eyebrow">Writing your board</p>
       <h2 class="gen-topic" id="gen-topic"></h2>
-      <p class="gen-line" id="gen-line">Picking six categories...</p>
+      <div class="gen-bar" role="progressbar" aria-label="Writing the board" aria-valuemin="0" aria-valuemax="100" id="gen-bar"><i id="gen-fill"></i></div>
+      <p class="gen-line" id="gen-line">Picking categories...</p>
       <button class="btn on-hill" data-act="new-game">Cancel</button>
     </div>
     <aside class="card join compact" id="join-card-2"></aside>
@@ -105,7 +110,7 @@
   <section class="screen" id="s-board" data-pose="board">
     <header class="bar">
       <div class="bar-join" id="bar-join"></div>
-      <div class="logo bar-logo">Infinite Jeopardy</div>
+      <div class="logo bar-logo">Infinite <i>Jeopardy</i></div>
       <div class="bar-topic" id="bar-topic"></div>
     </header>
     <div class="grid" id="grid"></div>
@@ -143,13 +148,22 @@
     <div class="over" id="over"></div>
   </section>
 
-  <!-- tools in the corner during a game -->
-  <nav class="tools" id="tools" aria-label="Game tools" hidden>
-    <button class="tool" data-overlay="join" title="Show how to join (J)">Join</button>
-    <button class="tool" data-overlay="host" title="Run the game from a phone (H)">Host phone</button>
-    <button class="tool" id="mute" title="Sound on or off (M)">Sound on</button>
-    <button class="tool" id="fs" title="Full screen (F)">Full screen</button>
-    <button class="tool" data-overlay="menu" title="More">More</button>
+  <!-- menu: a hamburger in the corner that swings open -->
+  <nav class="menu" id="tools" aria-label="Game menu" hidden>
+    <button class="burger" id="burger" aria-expanded="false" aria-controls="menu-panel" aria-label="Menu"><i></i><i></i><i></i></button>
+    <div class="menu-panel card" id="menu-panel" inert>
+      <div class="menu-room"><span class="menu-lab">Room code</span><b class="menu-code" id="menu-code"></b><span class="menu-url" id="menu-url"></span></div>
+      <div class="menu-board" id="menu-board" hidden><span class="menu-lab">Board code</span><b id="menu-board-code"></b></div>
+      <div class="menu-list">
+        <button class="mi" data-overlay="join"><span>Join QR</span><span class="kbd">J</span></button>
+        <button class="mi" data-overlay="host"><span>Host phone</span><span class="kbd">H</span></button>
+        <button class="mi" id="mute"><span id="mute-l">Sound on</span><span class="kbd">M</span></button>
+        <button class="mi" id="fs"><span>Full screen</span><span class="kbd">F</span></button>
+        <button class="mi" data-act="start-final" id="mi-final" hidden><span>Skip to Final Jeopardy</span></button>
+        <button class="mi" data-overlay="confirm-new" id="mi-new"><span>Start over</span></button>
+        <button class="mi warn" data-overlay="confirm-leave"><span>Close room</span></button>
+      </div>
+    </div>
   </nav>
 
   <div class="overlay" id="overlay" hidden><div class="card ov" id="ov" role="dialog" aria-modal="true"></div></div>

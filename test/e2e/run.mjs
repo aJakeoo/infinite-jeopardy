@@ -45,9 +45,20 @@ async function joinPhone(p, code, name) {
   await p.click('#join-btn');
   await p.waitForSelector('#v-game:not([hidden])', { timeout: 8000 });
 }
+
+// The ages field is a dropdown: band checkboxes plus an "Other" box (#age).
+async function typeAges(tv, text) {
+  if (await tv.locator('#ages-pop').isHidden()) await tv.click('#ages-btn');
+  await tv.fill('#age', text);
+  await tv.click('#ages-btn');
+}
+async function openMenu(tv) {
+  if (!(await tv.locator('#tools.open').count())) await tv.click('#burger', { force: true });
+  await tv.waitForTimeout(350);
+}
 async function makeBoard(tv, topic, age) {
   await tv.fill('#topic', topic);
-  if (age != null) await tv.fill('#age', age);
+  if (age != null) await typeAges(tv, age);
   await tv.click('#make');
   await waitScreen(tv, 's-board', 20000);
 }
@@ -76,7 +87,7 @@ async function game1() {
   // dice fills a topic
   await tv.click('#dice');
   ok('dice fills the topic', (await tv.inputValue('#topic')).length > 2, await tv.inputValue('#topic'));
-  await tv.fill('#age', '6');
+  await typeAges(tv, '6');
   const kid = []; for (let i = 0; i < 12; i++) { await tv.click('#dice'); kid.push(await tv.inputValue('#topic')); }
   ok('age 6 dice never rolls adult topics', !kid.some((t) => /Wine|Cocktail|Cold War|Philosophy|Economics/.test(t)), kid.join(' | '));
 
@@ -102,7 +113,7 @@ async function game1() {
   const host = await newPage('host', IPHONE17PM);
   await host.goto(`${BASE}/play?room=${creds.code}&role=host&key=${creds.hostKey}`);
   await host.waitForSelector('#v-game:not([hidden])');
-  ok('host phone connects', /Set up the board/.test(await phoneText(host)));
+  ok('host phone connects and shows the setup controls', await host.locator('#hs-form').count() === 1);
   const badHost = await newPage('badhost', IPHONE13);
   await badHost.goto(`${BASE}/play?room=${creds.code}&role=host&key=wrong`);
   await badHost.waitForFunction(() => !document.getElementById('v-join').hidden && /not valid/.test(document.getElementById('join-err').innerText), null, { timeout: 15000 }).catch(() => {});
@@ -113,7 +124,7 @@ async function game1() {
   await wait(900);
   ok('board has 6 categories', await tv.locator('#grid .cat').count() === 6);
   ok('board has 30 tiles', await tv.locator('#grid .tile').count() === 30);
-  const shareCode = (await tv.locator('#bar-topic').innerText()).match(/Board ([A-Z0-9]{6})/)?.[1];
+  const shareCode = (await tv.locator('#menu-board-code').textContent()).match(/^[A-Z0-9]{6}$/)?.[0];
   ok('board has a share code', !!shareCode, shareCode);
   await shot(tv, 'tv-board');
   await host.waitForSelector('.hboard');
@@ -238,7 +249,7 @@ async function game1() {
       await p.waitForSelector('#final-in');
       await p.fill('#final-in', i === 0 ? 'What is HMS Beagle?' : 'What is the Mayflower?');
       await p.click('#final-form button');
-      await p.waitForSelector('.ok-note');
+      await p.waitForSelector('#final-form button.sent');
     }
     if (finalists[0]) await shot(finalists[0], 'phone-final-answer');
     await tv.click('[data-act="stop-final"]');
@@ -262,7 +273,7 @@ async function game1() {
   // Replay the same board by code
   await tv.click('[data-act="replay"]');
   await waitScreen(tv, 's-board', 8000);
-  ok('"Play this board again" reloads the same board', (await tv.locator('#bar-topic').innerText()).includes(shareCode));
+  ok('"Play this board again" reloads the same board', (await tv.locator('#menu-board-code').textContent()) === shareCode);
   ok('scores reset for the replay', !(await tv.locator('#scores').innerText()).match(/\$[1-9]/));
 
   // A player leaves via the menu
@@ -326,8 +337,8 @@ async function game2(shareCode) {
   } else ok('first quick clue was a Daily Double (keyboard test skipped)', true);
 
   // load a board code is only possible in setup: start over
-  await tv.click('[data-overlay="menu"]');
-  await tv.click('[data-overlay="confirm-new"]');
+  await openMenu(tv);
+  await tv.click('#mi-new');
   await tv.click('#ov [data-act="new-game"]');
   await waitScreen(tv, 's-setup');
   await tv.click('#loadcode summary');
@@ -341,8 +352,8 @@ async function game2(shareCode) {
   ok('a saved board code loads (lowercase typed)', (await tv.locator('#grid .tile').count()) === 30);
 
   // Skip to final via menu with no positive scores -> game over
-  await tv.click('[data-overlay="menu"]');
-  await tv.click('#ov [data-act="start-final"]');
+  await openMenu(tv);
+  await tv.click('#mi-final');
   await waitScreen(tv, 's-over', 8000);
   ok('skipping to final with nobody above $0 ends the game', true);
   for (const p of [tv, ...ps]) await p.context().close();

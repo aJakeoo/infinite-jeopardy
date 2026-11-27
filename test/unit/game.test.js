@@ -376,3 +376,55 @@ test('adjust validates input', () => {
   assert.equal(G.adjust(s, 'nobody', 200, 0).ok, false);
   assert.equal(s.players[a].score, 200);
 });
+
+test('buzz line: wrong answer passes to the next buzzer, who can win the points', () => {
+  const s = room();
+  const [a, b, c, d, e] = withPlayers(s, ['Ava', 'Johnny', 'Cy', 'Dee', 'Eve']);
+  start(s);
+  const open = openClue(s, 0, 0);
+  for (const [i, p] of [a, b, c, d, e].entries()) G.buzz(s, p, 100 + i * 10, 0, open + 100 + i * 10);
+  G.tick(s, open + 1000);
+  assert.equal(s.phase, 'answering');
+  assert.equal(s.current.winner, a);
+  assert.deepEqual(s.current.queue, [a, b, c, d], 'only the top four line up');
+  G.judge(s, false, open + 2000);
+  assert.equal(s.phase, 'answering', 'no reopening while someone is still in line');
+  assert.equal(s.current.winner, b);
+  assert.equal(s.players[a].score, -200);
+  G.judge(s, true, open + 3000);
+  assert.equal(s.players[b].score, 200, 'the second buzzer gets the points');
+  assert.equal(s.control, b);
+});
+
+test('buzz line: the host can tap any name, and late buzzes join the line', () => {
+  const s = room();
+  const [a, b, c] = withPlayers(s, ['Ava', 'Johnny', 'Cy']);
+  start(s);
+  const open = openClue(s, 0, 1);
+  G.buzz(s, a, 100, 0, open + 100);
+  G.tick(s, open + 500);
+  assert.deepEqual(s.current.queue, [a]);
+  assert.equal(G.buzz(s, c, 0, 0, open + 900).reason, 'queued', 'buzzing while Ava answers gets you in line');
+  assert.deepEqual(s.current.queue, [a, c]);
+  assert.equal(G.select(s, b, open + 1000).ok, true, 'host picks Johnny even though he never buzzed');
+  assert.equal(s.current.winner, b);
+  G.judge(s, false, open + 1100);
+  assert.ok(s.current.lockedOut.includes(b));
+  assert.equal(s.current.winner, a, 'back to the first in line who has not answered');
+  assert.equal(G.select(s, b, open + 1200).ok, false, 'someone who already answered cannot be picked again');
+  G.judge(s, false, open + 1300);
+  assert.equal(s.current.winner, c);
+  G.judge(s, false, open + 1400);
+  assert.equal(s.phase, 'reveal', 'everyone tried, so the clue ends');
+  assert.equal(G.view(s, 'tv').current.queue.length, 3);
+});
+
+test('buzz line: selecting while buzzers are open starts the answer', () => {
+  const s = room();
+  const [a] = withPlayers(s, ['Ava', 'Ben']);
+  start(s);
+  openClue(s, 1, 0);
+  assert.equal(G.select(s, a, 5000).ok, true);
+  assert.equal(s.phase, 'answering');
+  assert.equal(s.current.winner, a);
+});

@@ -163,6 +163,7 @@ export class Room {
       case 'final-judge': return G.finalJudge(s, m.eid ?? null, !!m.correct, now);
       case 'adjust': return G.adjust(s, m.eid, m.delta, now);
       case 'kick': return G.removePlayer(s, m.pid, now);
+      case 'select': return G.select(s, m.pid, now);
       case 'new-game': return G.newGame(s, now);
       default: return { ok: false, err: 'Unknown action.', quiet: true };
     }

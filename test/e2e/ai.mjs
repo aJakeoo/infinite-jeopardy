@@ -17,6 +17,17 @@ await tv.click('#start');
 await tv.waitForSelector('#s-setup.on');
 ok('demo note is hidden when a key is set', await tv.locator('#demo-note[hidden]').count() === 1);
 
+
+// The ages field is a dropdown: band checkboxes plus an "Other" box (#age).
+async function typeAges(tv, text) {
+  if (await tv.locator('#ages-pop').isHidden()) await tv.click('#ages-btn');
+  await tv.fill('#age', text);
+  await tv.click('#ages-btn');
+}
+async function openMenu(tv) {
+  if (!(await tv.locator('#tools.open').count())) await tv.click('#burger', { force: true });
+  await tv.waitForTimeout(350);
+}
 async function generate(topic) {
   await tv.fill('#topic', topic);
   await tv.click('#make');
@@ -25,8 +36,8 @@ async function generate(topic) {
   return tv.evaluate(() => document.querySelector('.screen.on').id);
 }
 async function backToSetup() {
-  await tv.click('[data-overlay="menu"]', { force: true });
-  await tv.click('[data-overlay="confirm-new"]');
+  await openMenu(tv);
+  await tv.click('#mi-new');
   await tv.click('#ov [data-act="new-game"]');
   await tv.waitForSelector('#s-setup.on');
 }
@@ -45,7 +56,7 @@ ok('topic and age reach the prompt', /the ocean/.test(JSON.stringify(first.messa
 
 await backToSetup();
 await tv.click('#size-seg [data-size="4x4"]');
-await tv.fill('#age', '8-10');
+await typeAges(tv, '8-10');
 ok('board 2 (quick 4x4) generates', await generate('space') === 's-board');
 ok('quick AI board has 16 tiles', await tv.locator('#grid .tile').count() === 16);
 const last = JSON.parse(fs.readFileSync('test/e2e/out/ai-requests.json', 'utf8')).at(-1).body;
@@ -56,8 +67,12 @@ ok('ages 8-10 use the kids band and its clue length', /Kids\\" band/.test(m2) &&
 ok('kids band asks for its default styles only', /- Describe it:/.test(m2) && /- Extra hints:/.test(m2) && !/- Before & After:/.test(m2));
 
 await backToSetup();
-await tv.fill('#age', 'adults');
+await tv.click('#ages-btn');
+await tv.fill('#age', '');
+await tv.check('#age-checks input[data-band="adults"]');
+await tv.click('#ages-btn');
 await tv.waitForTimeout(800);
+ok('the ages button sums up the ticked bands', (await tv.locator('#ages-sum').innerText()) === 'Adults', await tv.locator('#ages-sum').innerText());
 await tv.click('#tune summary');
 ok('typing adults re-ticks the boxes for adults', await tv.locator('#style-checks input[data-style="beforeafter"]').isChecked() && !(await tv.locator('#style-checks input[data-style="hints"]').isChecked()));
 await tv.click('#style-checks input[data-style="rhyme"]');
@@ -65,7 +80,7 @@ await tv.click('#style-checks input[data-style="hints"]');
 await tv.click('#level-seg [data-level="1"]');
 await tv.waitForTimeout(500);
 ok('fine tune summary updates', /Adults, harder/.test(await tv.locator('#tune-sum').innerText()), await tv.locator('#tune-sum').innerText());
-await tv.fill('#age', 'adults 25+');
+await typeAges(tv, '25');
 await tv.waitForTimeout(800);
 ok('editing the age within the same band keeps the fine tuning', await tv.locator('#style-checks input[data-style="hints"]').isChecked() && !(await tv.locator('#style-checks input[data-style="rhyme"]').isChecked()));
 await tv.reload();

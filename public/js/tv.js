@@ -1,7 +1,7 @@
 // TV / laptop screen: creates the room, shows the board, and can run the whole game by itself.
 import { Conn, storage, esc, money, put } from './net.js';
 import { rollTopic } from './topics.js';
-import { STYLES, STYLE_IDS, BANDS, bandFor, defaultTune, cleanTune, tuneSummary } from './tuning.js';
+import { STYLES, STYLE_IDS, BANDS, bandFor, defaultTune, cleanTune, tuneSummary, AGE_PRESETS, composeAges, splitAges, agesLabel } from './tuning.js';
 import * as sfx from './sfx.js';
 
 const $ = (id) => document.getElementById(id);
@@ -60,13 +60,13 @@ function show(id) {
   const scene = $('scene');
   scene.dataset.pose = $(id).dataset.pose;
   $('tools').hidden = id === 's-home';
+  if (id === 's-home') setMenu(false);
   document.body.classList.toggle('in-game', id !== 's-home' && id !== 's-setup');
 }
 
 function render() {
   if (!S) return;
   show(PHASE_SCREEN[S.phase] || 's-setup');
-  $('scene').classList.toggle('walking', S.phase === 'generating');
   handleEvent();
   if (S.phase === 'setup') renderSetup();
   if (S.phase === 'generating') renderGenerating();
@@ -75,6 +75,7 @@ function render() {
   if (S.phase === 'dd-wager') renderDD();
   if (PHASE_SCREEN[S.phase] === 's-final') renderFinal();
   if (S.phase === 'over') renderOver();
+  renderMenu();
   renderOverlay();
 }
 
@@ -100,12 +101,9 @@ const playerName = (pid) => { const p = S.players.find((x) => x.id === pid); ret
 function joinCard(compact) {
   const lobby = S.mode === 'teams'
     ? `<div class="teamcols" style="--n:${Object.keys(S.teams).length}">${Object.values(S.teams).map((t) => `<div class="team"><h4>${esc(t.name)}</h4>${S.players.filter((p) => p.team === t.id).map((p) => `<span>${esc(p.name)}</span>`).join('') || '<span class="lobby-empty">&nbsp;</span>'}</div>`).join('')}</div>`
-    : `<div class="lobby">${S.players.length ? S.players.map((p) => `<span class="chip${p.connected ? '' : ' off'}">${esc(p.name)}${compact ? '' : `<button type="button" data-kick="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">&times;</button>`}</span>`).join('') : '<span class="empty">Nobody yet. Scan the code to join.</span>'}</div>`;
-  return `<h3>${compact ? 'Join the game' : 'Join on your phone'}</h3>
-    <div class="qr">${qrSvg(joinUrl())}</div>
-    <div class="url">Go to <b>${esc(location.host)}/play</b></div>
-    <div class="roomcode" aria-label="Room code">${esc(S.code)}</div>
-    ${lobby}`;
+    : `<div class="lobby">${S.players.length ? S.players.map((p) => `<span class="chip${p.connected ? '' : ' off'}">${esc(p.name)}${compact ? '' : `<button type="button" data-kick="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">&times;</button>`}</span>`).join('') : ''}</div>`;
+  return `<div class="qr" role="img" aria-label="QR code to join room ${esc(S.code)}">${qrSvg(joinUrl())}</div>
+    ${compact ? `<div class="count">${S.players.length || ''}</div>` : lobby}`;
 }
 
 /* ---------------- setup ---------------- */
@@ -115,7 +113,8 @@ function renderSetup() {
     setupInit = true;
     if (S.gen && S.gen.topic && !$('topic').value) $('topic').value = S.gen.topic;
     const age0 = (S.settings && S.settings.age) || (S.gen && S.gen.age) || '';
-    if (age0 && !$('age').value) $('age').value = age0;
+    $('age-checks').innerHTML = AGE_PRESETS.map(([id, r]) => `<label class="check"><input type="checkbox" data-band="${id}"><span>${esc(BANDS[id].label)} <small>${r}</small></span></label>`).join('');
+    setAges(age0);
     $('style-checks').innerHTML = STYLE_IDS.map((id) => `<label class="check"><input type="checkbox" data-style="${id}"><span>${esc(STYLES[id].label)}</span></label>`).join('');
     setTimeout(() => $('topic').focus(), 300);
   }
@@ -124,6 +123,9 @@ function renderSetup() {
   document.querySelectorAll('#mode-seg button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === st.mode)));
   document.querySelectorAll('#teams-seg button').forEach((b) => b.setAttribute('aria-checked', String(Number(b.dataset.teams) === st.teams)));
   $('teams-field').hidden = st.mode !== 'teams';
+  // The host phone can change the ages too; follow it unless someone is editing them here.
+  if (sentAge !== null && (st.age || '') === sentAge) sentAge = null;
+  if ($('ages-pop').hidden && !ageTimer && sentAge === null && ageValue() !== (st.age || '')) { setAges(st.age || ''); lastBand = bandFor(st.age || ''); }
   renderTune();
   $('setup-err').textContent = S.gen && S.gen.status === 'error' ? S.gen.error : $('setup-err').dataset.local || '';
   $('demo-note').hidden = ai;
@@ -132,20 +134,45 @@ function renderSetup() {
 function setting(obj) { conn.request({ t: 'settings', settings: obj }).then(fail); }
 
 /* fine tune: the age picks a band and pre-ticks its styles; players can then tick and untick */
-const curTune = () => cleanTune(S.settings.tune, $('age').value);
+/* ages: a dropdown of band checkboxes plus an Other box, joined into one string like "7-9, 18+" */
+function ageValue() {
+  const bands = [...document.querySelectorAll('#age-checks input')].filter((x) => x.checked).map((x) => x.dataset.band);
+  return composeAges(bands, $('age').value);
+}
+function setAges(text) {
+  const { bands, other } = splitAges(text);
+  document.querySelectorAll('#age-checks input').forEach((x) => { x.checked = bands.includes(x.dataset.band); });
+  $('age').value = other;
+  $('ages-sum').textContent = agesLabel(text);
+}
+function setAgesOpen(open) {
+  $('ages-pop').hidden = !open;
+  $('ages-btn').setAttribute('aria-expanded', String(open));
+  if (open) $('tune').open = false;
+}
+$('ages-btn').addEventListener('click', () => setAgesOpen($('ages-pop').hidden));
+document.addEventListener('pointerdown', (e) => { if (!$('ages-pop').hidden && !e.target.closest('#ages')) setAgesOpen(false); });
+$('ages-pop').addEventListener('keydown', (e) => { if (e.key === 'Escape' || (e.key === 'Enter' && e.target.id === 'age')) { e.preventDefault(); e.stopPropagation(); setAgesOpen(false); $('ages-btn').focus(); } });
+$('age-checks').addEventListener('change', agesChanged);
+const curTune = () => cleanTune(S.settings.tune, ageValue());
 function renderTune() {
-  const age = $('age').value, t = curTune(), b = BANDS[bandFor(age)];
+  const age = ageValue(), t = curTune(), b = BANDS[bandFor(age)];
+  $('ages-sum').textContent = agesLabel(age);
   document.querySelectorAll('#level-seg button').forEach((x) => x.setAttribute('aria-checked', String(Number(x.dataset.level) === t.level)));
   document.querySelectorAll('#style-checks input').forEach((x) => { x.checked = t.styles.includes(x.dataset.style); });
   $('tune-sum').textContent = tuneSummary(age, t);
   const custom = JSON.stringify(t.styles) !== JSON.stringify(defaultTune(age).styles);
-  $('tune-note').textContent = `${age.trim() ? `Ticked for ${b.label.toLowerCase()} (${b.ages})` : 'No ages given, so ticked for adults'}${custom ? ', then fine tuned' : ''}. Tick or untick to change what kinds of clues the AI writes.`;
+  $('tune-note').textContent = `${age.trim() ? `Set for ${b.label.toLowerCase()}` : 'Set for adults'}${custom ? ', fine tuned' : ''}.`;
 }
-let ageTimer = null, lastBand = null;
-$('age').addEventListener('input', () => {
+let ageTimer = null, lastBand = null, sentAge = null;
+$('age').addEventListener('input', agesChanged);
+function agesChanged() {
+  $('ages-sum').textContent = agesLabel(ageValue());
   clearTimeout(ageTimer);
   ageTimer = setTimeout(() => {
-    const age = $('age').value.trim(), band = bandFor(age);
+    ageTimer = null;
+    const age = ageValue(), band = bandFor(age);
+    sentAge = age;
     if (lastBand == null) lastBand = bandFor(S.settings.age || '');
     // A new age band resets the boxes to that band's picks; typing within the same band keeps any fine tuning.
     if (band !== lastBand) setting({ age, tune: { ...defaultTune(age), level: curTune().level } });
@@ -153,9 +180,9 @@ $('age').addEventListener('input', () => {
     lastBand = band;
     renderTune();
   }, 300);
-});
+}
 // Only one of the two drop-downs open at a time, so the setup card always fits the screen.
-$('tune').addEventListener('toggle', () => { if ($('tune').open) $('loadcode').open = false; });
+$('tune').addEventListener('toggle', () => { if ($('tune').open) { $('loadcode').open = false; setAgesOpen(false); } });
 $('loadcode').addEventListener('toggle', () => { if ($('loadcode').open) $('tune').open = false; });
 $('level-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ tune: { ...curTune(), level: Number(b.dataset.level) } }); });
 $('style-checks').addEventListener('change', () => {
@@ -166,7 +193,7 @@ $('size-seg').addEventListener('click', (e) => { const b = e.target.closest('but
 $('mode-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ mode: b.dataset.mode }); });
 $('teams-seg').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setting({ teams: Number(b.dataset.teams) }); });
 $('dice').addEventListener('click', () => {
-  $('topic').value = rollTopic($('age').value);
+  $('topic').value = rollTopic(ageValue());
   const d = $('dice'); d.classList.remove('rolling'); void d.offsetWidth; d.classList.add('rolling');
   $('setup-err').dataset.local = ''; $('setup-err').textContent = '';
 });
@@ -176,8 +203,9 @@ $('setup-form').addEventListener('submit', async (e) => {
   let topic = $('topic').value.trim();
   if (!topic) { $('setup-err').textContent = $('setup-err').dataset.local = 'Type what the board should be about, or roll the dice.'; $('topic').focus(); return; }
   $('make').disabled = true;
-  clearTimeout(ageTimer);
-  const age = $('age').value.trim();
+  clearTimeout(ageTimer); ageTimer = null;
+  setAgesOpen(false);
+  const age = ageValue();
   if (age !== (S.settings.age || '')) await conn.request({ t: 'settings', settings: bandFor(age) !== bandFor(S.settings.age || '') ? { age, tune: { ...defaultTune(age), level: curTune().level } } : { age } });
   lastBand = bandFor(age);
   const r = await conn.request({ t: 'generate', topic, age });
@@ -202,6 +230,9 @@ const GEN_LINES = ['Picking categories...', 'Writing the easy ones...', 'Making 
 let genTimer = null;
 function renderGenerating() {
   $('gen-topic').textContent = S.gen.topic;
+  const g = $('gen-fill');
+  g.dataset.start = S.gen.startedAt || Date.now();
+  g.dataset.tau = S.settings.size === '4x4' ? 9000 : 15000;
   put($('join-card-2'), joinCard(true));
   if (!genTimer) {
     let i = 0; $('gen-line').textContent = GEN_LINES[0];
@@ -228,14 +259,14 @@ function renderBoard() {
   }
   if (fresh) { grid._html = null; }
   put(grid, html);
-  put($('bar-join'), `Join at ${esc(location.host)}/play &middot; <b>${esc(S.code)}</b>`);
-  put($('bar-topic'), `<i>${esc(b.title || b.topic)}</i>${b.age ? ` &middot; ages ${esc(b.age)}` : ''}${b.shareCode ? `<br><span class="num">Board ${esc(b.shareCode)}</span>` : ''}${b.demo ? '<br>Demo board' : ''}`);
+  put($('bar-join'), `<div class="qr" role="img" aria-label="QR code to join room ${esc(S.code)}">${qrSvg(joinUrl())}</div>`);
+  put($('bar-topic'), `<i>${esc(b.title || b.topic)}</i>${b.demo ? '<small>Demo board</small>' : ''}`);
   renderScores();
 }
 function renderScores() {
   const ents = entityList();
   put($('scores'), ents.length ? ents.map((e) => `<div class="score${e.score < 0 ? ' neg' : ''}${e.connected ? '' : ' off'}${S.control === e.id ? ' picks' : ''}"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b></div>`).join('')
-    : `<span class="none">Scan the code to join: ${esc(location.host)}/play &middot; ${esc(S.code)}</span>`);
+    : '');
 }
 $('grid').addEventListener('click', (e) => {
   const t = e.target.closest('.tile');
@@ -281,9 +312,15 @@ function renderClueStatus() {
   el.classList.toggle('buzzed', S.phase === 'answering');
   if (S.phase === 'reading') put(el, `<span class="msg">Reading the clue...</span><span class="track"><i data-from="${c.openAt - readSpan(c)}" data-to="${c.openAt}" data-dir="fill"></i></span>`);
   else if (S.phase === 'open') put(el, `<span class="msg">Buzz in now!</span>${lockedNames(c)}<span class="track"><i data-from="${c.closesAt - 12000}" data-to="${c.closesAt}" data-dir="drain"></i></span><span class="secs num" data-until="${c.closesAt}"></span>`);
-  else if (S.phase === 'answering') put(el, `<div><div class="buzzer-name">${esc(playerName(c.winner))}${S.mode === 'teams' ? ` <span class="buzzer-sub">(${esc(teamOfPid(c.winner))})</span>` : ''}</div><div class="buzzer-sub">${c.runnerUp ? `beat ${esc(playerName(c.runnerUp.pid))} by ${c.runnerUp.ms} ms &middot; ` : ''}answer out loud</div></div>`);
+  else if (S.phase === 'answering') put(el, `<div><div class="buzzer-name">${esc(playerName(c.winner))}${S.mode === 'teams' ? ` <span class="buzzer-sub">(${esc(teamOfPid(c.winner))})</span>` : ''}</div>${lineChips(c)}</div>`);
   else if (S.phase === 'dd-clue') put(el, `<span class="msg">${esc(nameOf(c.ddEntity))} answers for ${money(c.wager)}</span>`);
   else put(el, '');
+}
+// The buzz line: tap a name to make them the one answering.
+function lineChips(c) {
+  const q = c.queue || [];
+  if (q.length < 2) return '';
+  return `<div class="line">${q.map((pid, i) => { const out = c.lockedOut.includes(S.mode === 'teams' ? (S.players.find((p) => p.id === pid) || {}).team : pid); return `<button class="lchip${pid === c.winner ? ' on' : ''}${out ? ' out' : ''}" data-select="${esc(pid)}" ${out ? 'disabled' : ''}><b>${i + 1}</b>${esc(playerName(pid))}</button>`; }).join('')}</div>`;
 }
 const teamOfPid = (pid) => { const p = S.players.find((x) => x.id === pid); return p && S.teams[p.team] ? S.teams[p.team].name : ''; };
 const readSpan = (c) => Math.max(2500, Math.min(7000, 1500 + (c.clue || '').length * 45));
@@ -295,8 +332,8 @@ function renderClueControls() {
   else if (S.phase === 'open') h = `<button class="btn on-hill" data-act="reveal">Nobody knows, reveal${K('R')}</button>`;
   else if (S.phase === 'answering' || S.phase === 'dd-clue') {
     h = c.revealed
-      ? `<span class="hint">Were they right?</span><button class="btn bad" data-act="judge" data-correct="0">Incorrect${K('X')}</button><button class="btn good" data-act="judge" data-correct="1">Correct${K('C')}</button>`
-      : `<button class="btn on-hill" data-act="judge" data-correct="0">Incorrect${K('X')}</button><button class="btn on-hill" data-act="judge" data-correct="1">Correct${K('C')}</button><button class="btn paper" data-act="reveal">Reveal answer${K('R')}</button>`;
+      ? `<button class="btn jb" data-act="judge" data-correct="0" aria-label="Incorrect"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>${K('X')}</button><button class="btn jb" data-act="judge" data-correct="1" aria-label="Correct"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>${K('C')}</button>`
+      : `<button class="btn paper" data-act="reveal">Reveal answer${K('R')}</button><button class="btn jb" data-act="judge" data-correct="0" aria-label="Incorrect"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>${K('X')}</button><button class="btn jb" data-act="judge" data-correct="1" aria-label="Correct"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>${K('C')}</button>`;
   } else if (S.phase === 'reveal') h = `<button class="btn paper" data-act="continue">${S.tilesLeft <= 1 ? 'On to Final Jeopardy' : 'Back to the board'}${K('Space')}</button>`;
   put(el, h);
 }
@@ -341,7 +378,7 @@ function renderFinal() {
         <p class="wag num">Wagered ${money(f.wagers[next] || 0)}</p>
         ${f.revealed ? `<div class="correct"><small>Correct response</small><b>${esc(f.response || '')}</b></div>` : ''}
         <p class="progress">${done + 1} of ${f.order.length}</p></div>`);
-    put(ctl, `${f.revealed ? '' : `<button class="btn on-hill" data-act="reveal">Show correct response${K('R')}</button>`}<button class="btn bad" data-act="final-judge" data-correct="0">Incorrect${K('X')}</button><button class="btn good" data-act="judge-final-ok" data-correct="1">Correct${K('C')}</button>`);
+    put(ctl, `${f.revealed ? '' : `<button class="btn on-hill" data-act="reveal">Show correct response${K('R')}</button>`}<button class="btn jb" data-act="final-judge" data-correct="0" aria-label="Incorrect"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>${K('X')}</button><button class="btn jb" data-act="judge-final-ok" data-correct="1" aria-label="Correct"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>${K('C')}</button>`);
   }
 }
 
@@ -356,7 +393,7 @@ function renderOver() {
     ${S.final && S.final.response ? `<p>Final answer: <i>${esc(S.final.response)}</i></p>` : ''}
     <div class="podium">${ents.map((e, i) => `<div class="p${i === 0 ? ' first' : ''}"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b></div>`).join('')}</div>
     <div class="after">
-      ${b && b.shareCode ? `<div class="code">Board code <b>${esc(b.shareCode)}</b>: load it again any time</div>` : ''}
+      ${b && b.shareCode ? `<div class="code">Board <b>${esc(b.shareCode)}</b></div>` : ''}
       <div class="row"><button class="btn paper big" data-act="new-game">New board</button>${b && b.shareCode ? `<button class="btn on-hill big" data-act="replay" data-code="${esc(b.shareCode)}">Play this board again</button>` : ''}</div>
     </div>`);
 }
@@ -375,26 +412,23 @@ async function act(name, el) {
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
   if (b && !b.disabled) { e.preventDefault(); act(b.dataset.act, b); }
+  const sel = e.target.closest('[data-select]');
+  if (sel && !sel.disabled && conn) conn.request({ t: 'select', pid: sel.dataset.select }).then(fail);
   const o = e.target.closest('[data-overlay]');
   if (o) openOverlay(o.dataset.overlay);
 });
 
 /* ---------------- overlays & tools ---------------- */
 let overlay = null;
-function openOverlay(kind) { overlay = kind; renderOverlay(); }
+function openOverlay(kind) { overlay = kind; setMenu(false); renderOverlay(); }
 function closeOverlay() { overlay = null; renderOverlay(); }
 function renderOverlay() {
   const wrap = $('overlay');
   if (!overlay || !creds) { wrap.hidden = true; return; }
   wrap.hidden = false;
   let h = '';
-  if (overlay === 'join') h = `<h3>Join on your phone</h3><div class="qr">${qrSvg(joinUrl())}</div><p>Scan, or go to <b>${esc(location.host)}/play</b> and type <b>${esc(creds.code)}</b>.</p><button class="btn primary" data-close>Done</button>`;
-  else if (overlay === 'host') h = `<h3>Run the game from a phone</h3><div class="qr">${qrSvg(hostUrl())}</div><p>The host phone sees every answer and can judge, reveal and fix scores. Do not show this code to players.</p><p class="hosturl">${esc(hostUrl())}</p><button class="btn primary" data-close>Done</button>`;
-  else if (overlay === 'menu') h = `<h3>Game menu</h3><div class="row">
-      ${S && S.phase === 'board' ? '<button class="btn paper" data-act="start-final" data-close>Skip to Final Jeopardy</button>' : ''}
-      <button class="btn paper" data-overlay="confirm-new">Start over with a new board</button>
-      <button class="btn line" data-overlay="confirm-leave">Close this room</button></div>
-      <button class="btn primary" data-close>Back to the game</button>`;
+  if (overlay === 'join') h = `<div class="qr big">${qrSvg(joinUrl())}</div><p class="ov-code">${esc(location.host)}/play &middot; <b>${esc(creds.code)}</b></p><button class="btn primary" data-close>Done</button>`;
+  else if (overlay === 'host') h = `<h3>Host phone</h3><div class="qr big">${qrSvg(hostUrl())}</div><p>Sees every answer. Keep it away from players.</p><button class="btn primary" data-close>Done</button>`;
   else if (overlay === 'confirm-new') h = `<h3>Start over?</h3><p>Scores reset and everyone stays in the room.</p><div class="row"><button class="btn bad" data-act="new-game" data-close>Start over</button><button class="btn line" data-close>Keep playing</button></div>`;
   else if (overlay === 'confirm-leave') h = `<h3>Close this room?</h3><p>This screen goes back to the start. Phones stay connected to the old room until they leave.</p><div class="row"><button class="btn bad" id="leave-room">Close room</button><button class="btn line" data-close>Keep playing</button></div>`;
   put($('ov'), h);
@@ -404,7 +438,31 @@ $('overlay').addEventListener('click', (e) => {
   if (e.target.closest('#leave-room')) { store.del(CRED_KEY); if (conn) conn.close(); conn = null; S = null; creds = null; closeOverlay(); setupInit = false; $('resume').hidden = true; show('s-home'); }
 });
 $('mute').addEventListener('click', () => { sfx.setMuted(!sfx.isMuted()); syncMute(); });
-function syncMute() { $('mute').textContent = sfx.isMuted() ? 'Sound off' : 'Sound on'; }
+function syncMute() { $('mute-l').textContent = sfx.isMuted() ? 'Sound off' : 'Sound on'; }
+
+/* the hamburger: swings the panel out from the corner */
+let menuOpen = false;
+function setMenu(open) {
+  menuOpen = open;
+  $('tools').classList.toggle('open', open);
+  $('burger').setAttribute('aria-expanded', String(open));
+  $('burger').setAttribute('aria-label', open ? 'Close menu' : 'Menu');
+  $('menu-panel').inert = !open;
+  if (open) renderMenu();
+}
+function renderMenu() {
+  if (!creds) return;
+  $('menu-code').textContent = creds.code;
+  $('menu-url').textContent = `${location.host}/play`;
+  const code = S && S.board && S.board.shareCode;
+  $('menu-board').hidden = !code;
+  $('menu-board-code').textContent = code || '';
+  $('mi-final').hidden = !(S && S.phase === 'board');
+  $('mi-new').hidden = !(S && S.phase !== 'setup');
+}
+$('burger').addEventListener('click', () => setMenu(!menuOpen));
+$('menu-panel').addEventListener('click', (e) => { if (e.target.closest('[data-act]')) setMenu(false); });
+document.addEventListener('pointerdown', (e) => { if (menuOpen && !e.target.closest('#tools')) setMenu(false); });
 $('fs').addEventListener('click', toggleFs);
 function toggleFs() { try { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); } catch {} }
 
@@ -412,6 +470,7 @@ function toggleFs() { try { if (document.fullscreenElement) document.exitFullscr
 document.addEventListener('keydown', (e) => {
   sfx.unlock();
   if (e.key === 'Escape' && overlay) { closeOverlay(); return; }
+  if (e.key === 'Escape' && menuOpen) { setMenu(false); $('burger').focus(); return; }
   const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement && document.activeElement.tagName);
   if (typing || e.metaKey || e.ctrlKey || e.altKey || !S) return;
   const k = e.key.toLowerCase();
@@ -459,6 +518,13 @@ function frame() {
       if (i.dataset.dir === 'drain') p = 1 - p;
       i.style.transform = `scaleX(${p})`;
     });
+    const gf = $('gen-fill');
+    if (curScreen === 's-generating' && gf.dataset.start) {
+      // Haiku's time varies, so the bar eases toward 95% and never claims to be done before the board arrives.
+      const p = 0.95 * (1 - Math.exp(-(now - Number(gf.dataset.start)) / Number(gf.dataset.tau)));
+      gf.style.transform = `scaleX(${Math.max(0.03, p)})`;
+      $('gen-bar').setAttribute('aria-valuenow', String(Math.round(p * 100)));
+    }
     document.querySelectorAll('.screen.on [data-until]').forEach((s) => {
       const left = Math.max(0, Math.ceil((Number(s.dataset.until) - now) / 1000));
       s.textContent = left;

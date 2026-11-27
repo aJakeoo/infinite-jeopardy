@@ -18,14 +18,14 @@
 <div class="scene" id="scene" data-pose="join" aria-hidden="true">
   <div class="haze"></div><div class="cloud c1"></div>
   <div class="hill far"></div>
-  <div class="hill near"><div class="walker"></div></div>
+  <div class="hill near"></div>
   <div class="grain"></div><div class="speck"></div>
 </div>
 
 <main class="app" id="app">
   <!-- JOIN -->
   <section class="view" id="v-join">
-    <h1 class="logo join-logo">Infinite Jeopardy</h1>
+    <h1 class="logo join-logo">Infinite <i>Jeopardy</i></h1>
     <form class="card joinform" id="join-form" autocomplete="off" novalidate>
       <div class="field">
         <label for="room">Room code</label>
@@ -38,7 +38,7 @@
       <button class="btn primary wide" id="join-btn">Join the game</button>
       <p class="err" id="join-err" role="alert"></p>
     </form>
-    <p class="join-foot">The code is on the TV.</p>
+    <p class="join-foot">Scan the QR on the TV, or open its menu for the code.</p>
   </section>
 
   <!-- GAME (player or host) -->
@@ -50,7 +50,7 @@
     <div class="stagep" id="stagep"></div>
     <footer class="foot">
       <span class="dot" id="dot"></span><span id="foot-text"></span>
-      <button class="link" id="menu-btn" type="button">Menu</button>
+      <button class="burger" id="menu-btn" type="button" aria-label="Menu" aria-expanded="false"><i></i><i></i><i></i></button>
     </footer>
   </section>
 
