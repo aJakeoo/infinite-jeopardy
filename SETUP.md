@@ -34,7 +34,9 @@ Do the steps in order. Every command runs in PowerShell from the `infinite-jeopa
 Extra guards are built in and can be changed in `wrangler.jsonc`: `DAILY_BOARD_LIMIT` (100 boards a day for the
 whole site) and `HOURLY_BOARDS_PER_IP` (12 an hour per network). Redeploy after changing them.
 
-## 3. Put it on jeopardy.jakejuip.xyz
+## 3. Put it on infinite-jeopardy.jakejuip.xyz
+
+Done: the live game is at https://infinite-jeopardy.jakejuip.xyz (Cloudflare DNS, custom domain on the Worker).
 
 Cloudflare can only attach a Worker to a domain whose DNS it manages. Two choices:
 
@@ -44,7 +46,7 @@ Cloudflare can only attach a Worker to a domain whose DNS it manages. Two choice
    portfolio and any email records are all there before you switch.
 3. At IONOS, change the domain's **name servers** to the two Cloudflare gives you. It can take a few hours.
 4. When Cloudflare says the domain is active: Workers & Pages, `infinite-jeopardy`, Settings, **Domains & Routes**,
-   **Add**, Custom domain, `jeopardy.jakejuip.xyz`. Cloudflare makes the DNS record and the HTTPS certificate.
+   **Add**, Custom domain, `infinite-jeopardy.jakejuip.xyz`. Cloudflare makes the DNS record and the HTTPS certificate.
 
 **Option B: keep DNS at IONOS.** Use the `workers.dev` link as is, and embed it in the portfolio (step 4) or add a
 link to it. A redirect from IONOS works too, but players would see the workers.dev address.
@@ -54,10 +56,10 @@ link to it. A redirect from IONOS works too, but players would see the workers.d
 Paste this where the game should appear on jakejuip.xyz (swap in the workers.dev link if you chose option B):
 
 ```html
-<iframe src="https://jeopardy.jakejuip.xyz/" title="Infinite Jeopardy"
+<iframe src="https://infinite-jeopardy.jakejuip.xyz/" title="Infinite Jeopardy"
   style="width:100%;aspect-ratio:16/9;border:0;border-radius:16px"
   allow="fullscreen; autoplay"></iframe>
-<p><a href="https://jeopardy.jakejuip.xyz/">Open Infinite Jeopardy full screen</a></p>
+<p><a href="https://infinite-jeopardy.jakejuip.xyz/">Open Infinite Jeopardy full screen</a></p>
 ```
 
 The game only allows itself to be framed by `jakejuip.xyz` and its subdomains (see `public/_headers`).
