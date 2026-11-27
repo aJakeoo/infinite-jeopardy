@@ -440,7 +440,7 @@ function renderHost() {
   } else if (ph === 'over') {
     h = `<div class="card hcard"><p class="hstatus">Game over. ${S.board && S.board.shareCode ? `Board code ${esc(S.board.shareCode)}.` : ''}</p></div><div class="hbtns">${btn('new-game', 'New board', 'primary full')}</div>`;
   }
-  if (ph !== 'generating') h += `<p class="sect">Scores</p><div class="adj">${entityList().map((e) => `<div class="row"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b><button data-adj="${e.id}" data-d="-200" aria-label="Take 200 from ${esc(e.name)}">−</button><button data-adj="${e.id}" data-d="200" aria-label="Give 200 to ${esc(e.name)}">+</button>${isTeams() ? '' : `<button class="x" data-kick="${e.id}" aria-label="Remove ${esc(e.name)}">&times;</button>`}</div>`).join('') || '<div class="row"><span>No players yet</span></div>'}</div>`;
+  if (ph !== 'generating') h += `<p class="sect">Scores</p><div class="adj">${entityList().map((e) => `<div class="row"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b><button data-adj="${e.id}" data-d="-200" aria-label="Take 200 from ${esc(e.name)}">−</button><button data-adj="${e.id}" data-d="200" aria-label="Give 200 to ${esc(e.name)}">+</button>${isTeams() ? '' : `<button class="x${pendingKick === e.id ? ' sure' : ''}" data-kick="${e.id}" aria-label="Remove ${esc(e.name)}">${pendingKick === e.id ? '?' : '&times;'}</button>`}</div>`).join('') || '<div class="row"><span>No players yet</span></div>'}</div>`;
   if (isTeams() || ph === 'generating') h += playersBlock();
   if (!(document.activeElement && document.activeElement.id === 'h-wager-in')) put($('stagep'), h);
 }
@@ -455,11 +455,12 @@ function hostLine(c) {
 }
 
 /* host setup: everything the TV setup screen can do */
+let pendingKick = null, kickTimer = null;
 let hostSetupBuilt = false, hostAgeTimer = null, hostTopicTimer = null, hostSentTopic = null, hostTopicTypedAt = 0;
 function sendHostTopic() { clearTimeout(hostTopicTimer); hostTopicTimer = null; if (!$('hs-topic') || !S || S.phase !== 'setup') return; hostSentTopic = $('hs-topic').value; conn.request({ t: 'settings', settings: { topic: hostSentTopic } }).then(fail); }
 const seg = (id, items, attr) => `<div class="hseg" id="${id}">${items.map(([v, l]) => `<button type="button" data-${attr}="${v}">${l}</button>`).join('')}</div>`;
 function playersBlock() {
-  return `<p class="sect">Players</p><div class="pchips">${S.players.map((p) => `<span class="pchip${p.connected ? '' : ' off'}">${esc(p.name)}${isTeams() && S.teams[p.team] ? ` <small>${esc(S.teams[p.team].name)}</small>` : ''}<button class="x" data-kick="${p.id}" aria-label="Remove ${esc(p.name)}">&times;</button></span>`).join('') || '<span class="pnone">Nobody yet</span>'}</div>`;
+  return `<p class="sect">Players</p><div class="pchips">${S.players.map((p) => `<span class="pchip${p.connected ? '' : ' off'}">${esc(p.name)}${isTeams() && S.teams[p.team] ? ` <small>${esc(S.teams[p.team].name)}</small>` : ''}<button class="x${pendingKick === p.id ? ' sure' : ''}" data-kick="${p.id}" aria-label="Remove ${esc(p.name)}">${pendingKick === p.id ? '?' : '&times;'}</button></span>`).join('') || '<span class="pnone">Nobody yet</span>'}</div>`;
 }
 function renderHostSetup() {
   if (!hostSetupBuilt) {
@@ -547,7 +548,13 @@ $('stagep').addEventListener('click', async (e) => {
   if (b.dataset.teams) return fail(await conn.request({ t: 'settings', settings: { teams: Number(b.dataset.teams) } }));
   if (b.dataset.pick) { const [c, r] = b.dataset.pick.split('-').map(Number); return fail(await conn.request({ t: 'pick', c, r })); }
   if (b.dataset.adj) return fail(await conn.request({ t: 'adjust', eid: b.dataset.adj, delta: Number(b.dataset.d) }));
-  if (b.dataset.kick) { if (b.dataset.confirm) return fail(await conn.request({ t: 'kick', pid: b.dataset.kick })); b.dataset.confirm = '1'; b.textContent = '?'; return; }
+  // Remove takes two taps; the first one is remembered across screen refreshes for a few seconds.
+  if (b.dataset.kick) {
+    const id = b.dataset.kick;
+    if (pendingKick === id) { pendingKick = null; clearTimeout(kickTimer); return fail(await conn.request({ t: 'kick', pid: id })); }
+    pendingKick = id; clearTimeout(kickTimer); kickTimer = setTimeout(() => { pendingKick = null; render(); }, 4000);
+    return render();
+  }
   const h = b.dataset.h; if (!h) return;
   if (h === 'judge0' || h === 'judge1') return fail(await conn.request({ t: 'judge', correct: h === 'judge1' }));
   if (h === 'fjudge0' || h === 'fjudge1') return fail(await conn.request({ t: 'final-judge', correct: h === 'fjudge1' }));

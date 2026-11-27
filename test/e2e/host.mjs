@@ -123,7 +123,9 @@ await host.click('#hs-dice');
 ok('host dice fills in a topic', (await host.locator('#hs-topic').inputValue()).length > 2);
 await host.fill('#hs-topic', 'the ocean');
 await host.click('#hs-make');
-await tv.waitForSelector('#s-board.on', { timeout: 30000 });
+const t0 = Date.now();
+await tv.waitForSelector('#s-board.on', { timeout: 120000 });
+console.log(`  (board took ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 ok('host can make the board', await tv.locator('#grid .tile').count() === 16);
 
 // run a clue entirely from the host

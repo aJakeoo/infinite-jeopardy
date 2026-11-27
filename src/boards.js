@@ -225,14 +225,19 @@ export async function generateBoard(env, req, deps = {}) {
     categories: z.array(z.object({ name: z.string(), clues: z.array(z.object({ clue: z.string(), response: z.string() })) })),
     final: z.object({ category: z.string(), clue: z.string(), response: z.string() }),
   });
-  const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 90_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
-  let feedback = null, last = null;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 150_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
+  let feedback = null;
+  const ATTEMPTS = 3;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const lastTry = attempt === ATTEMPTS - 1;
     let res;
     try {
       res = await client.messages.parse({
         model: MODEL,
-        max_tokens: 8000,
+        max_tokens: 16000, // Haiku 5.5 thinks by default and thinking counts toward this cap
+        // Thinking off: in live tests Haiku 5.5's thinking sometimes ran past 16k tokens on adult boards and was slow;
+        // the board checker and retries catch the mistakes thinking would have caught.
+        thinking: { type: 'disabled' },
         system: SYSTEM,
         messages: [{ role: 'user', content: userPrompt({ topic, age, size, tune }, feedback) }],
         output_config: { effort: 'low', format: zodOutputFormat(Schema) },
@@ -243,13 +248,22 @@ export async function generateBoard(env, req, deps = {}) {
       throw new UserError('Could not reach the AI. Try again.');
     }
     if (res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
-    if (res.stop_reason === 'max_tokens' || !res.parsed_output) { feedback = ['The answer was cut off or was not valid JSON. Keep clues shorter.']; continue; }
+    if (res.stop_reason === 'max_tokens' || !res.parsed_output) {
+      console.warn(`board attempt ${attempt + 1}: stop_reason=${res.stop_reason}, parsed=${!!res.parsed_output}`);
+      feedback = ['The answer was cut off or was not valid JSON. Keep clues shorter.'];
+      continue;
+    }
     const v = validateBoard(res.parsed_output, size, maxClue);
-    last = v;
     if (v.board) return { ...v.board, topic, age, band, demo: false };
+    // On the last try, a repeated answer is a small flaw; a missing board stops the game. Keep the board.
+    if (lastTry && v.draft && v.hard.every((h) => /same answer as/.test(h))) {
+      console.warn(`board attempt ${attempt + 1} kept with repeats (${band}): ${v.hard.join(' | ')}`);
+      return { ...v.draft, topic, age, band, demo: false };
+    }
+    console.warn(`board attempt ${attempt + 1} rejected (${band}): ${v.hard.join(' | ')}`);
     feedback = v.hard;
   }
-  throw new UserError('The AI board had problems twice. Try again or tweak the topic.');
+  throw new UserError('The AI board had problems. Try again or tweak the topic.');
 }
 
 export class UserError extends Error {}

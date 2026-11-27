@@ -428,3 +428,27 @@ test('buzz line: selecting while buzzers are open starts the answer', () => {
   assert.equal(s.phase, 'answering');
   assert.equal(s.current.winner, a);
 });
+
+test('AI path: a cut-off attempt is retried, with thinking off', async () => {
+  const good = demoBoard('1800s', '6x5');
+  const calls = [];
+  const client = { messages: { parse: async (req) => { calls.push(req); return calls.length === 1 ? { stop_reason: 'max_tokens', parsed_output: null } : { stop_reason: 'end_turn', parsed_output: good }; } } };
+  const b = await generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: '1800s', size: '6x5' }, { client });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0].thinking, { type: 'disabled' });
+  assert.deepEqual(calls[1].thinking, { type: 'disabled' });
+  assert.ok(calls[0].max_tokens >= 16000);
+  assert.equal(b.demo, false);
+});
+
+test('AI path: on the last try, a repeated answer keeps the board instead of failing', async () => {
+  const dup = structuredClone(demoBoard('1800s', '6x5'));
+  dup.categories[1].clues[0].response = dup.categories[0].clues[0].response;
+  const client = { messages: { parse: async () => ({ stop_reason: 'end_turn', parsed_output: dup }) } };
+  const b = await generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: '1800s', size: '6x5' }, { client });
+  assert.equal(b.categories.length, 6);
+  const leak = structuredClone(demoBoard('1800s', '6x5'));
+  leak.categories[0].clues[0].clue = 'George Stephenson built this.';
+  const client2 = { messages: { parse: async () => ({ stop_reason: 'end_turn', parsed_output: leak }) } };
+  await assert.rejects(generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: '1800s', size: '6x5' }, { client: client2 }), /had problems/, 'a leaked answer still fails');
+});

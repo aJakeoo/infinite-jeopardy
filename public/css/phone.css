@@ -183,6 +183,7 @@ body.host .stagep { overflow-y: auto; -webkit-overflow-scrolling: touch; padding
 .pchip { display: inline-flex; align-items: center; gap: 6px; background: var(--paper); color: var(--ink); border-radius: 999px; padding: 6px 6px 6px 14px; font-weight: 600; }
 .pchip small { font-weight: 500; opacity: .6; }
 .pchip.off { opacity: .5; }
+.x.sure { background: var(--rust) !important; color: #fff4ec !important; }
 .pchip .x { border: 0; width: 30px; height: 30px; border-radius: 50%; background: rgba(155, 58, 36, .12); color: var(--rust); font-weight: 700; }
 .pnone { color: var(--paper); opacity: .7; }
 .hbar { height: 6px; border-radius: 999px; background: rgba(31, 58, 92, .12); overflow: hidden; }
