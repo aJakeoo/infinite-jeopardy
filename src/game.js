@@ -398,10 +398,26 @@ export function select(s, pid, now) {
   if (!cur || !['open', 'answering'].includes(s.phase)) return err('Nobody can answer right now.');
   if (!s.players[pid]) return err('That player is not in the game.');
   if (cur.lockedOut.includes(entityOf(s, pid))) return err('They already answered this one.');
+  if (s.phase === 'answering' && cur.winner === pid) return unselect(s, pid, now);
   if (!cur.queue.includes(pid)) cur.queue.push(pid);
   cur.winner = pid;
   if (s.phase === 'open') { s.phase = 'answering'; cur.windowEnd = null; cur.buzzes = []; }
   event(s, 'buzz', { pid, picked: true }, now);
+  return OK;
+}
+
+// Tapping the person being judged again takes them out of the line (an accidental tap).
+// The next person in line answers; with nobody left in line, the buzzers open again.
+function unselect(s, pid, now) {
+  const cur = s.current;
+  cur.queue = cur.queue.filter((q) => q !== pid);
+  cur.winner = cur.queue.find((q) => s.players[q] && !cur.lockedOut.includes(entityOf(s, q))) || null;
+  if (cur.winner) { event(s, 'buzz', { pid: cur.winner, next: true }, now); return OK; }
+  s.phase = 'open';
+  cur.closesAt = Math.max(cur.closesAt || 0, now + T.REOPEN_MS);
+  cur.windowEnd = null; cur.buzzes = []; cur.queue = [];
+  cur.round = (cur.round || 0) + 1;
+  event(s, 'open', {}, now);
   return OK;
 }
 

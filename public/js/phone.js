@@ -399,7 +399,7 @@ function renderHost() {
   const ph = S.phase, c = S.current;
   let h = '';
   const btn = (act, label, cls = 'paper', extra = '') => `<button class="btn ${cls}" data-h="${act}" ${extra}>${label}</button>`;
-  if (ph === 'setup') { renderHostSetup(); return; }
+  if (ph === 'setup') { $('stagep').classList.remove('fit'); renderHostSetup(); return; }
   hostSetupBuilt = false;
   if (ph === 'generating') {
     h = `<div class="card hcard"><span class="cat">Writing the board</span><p class="q">${esc(S.gen.topic)}</p><div class="hbar"><i></i></div></div><div class="hbtns">${btn('new-game', 'Cancel', 'line full')}</div>`;
@@ -423,10 +423,11 @@ function renderHost() {
     h = `<div class="card hcard"><span class="cat">${esc(c.category)} &middot; ${money(c.value)}${c.dd ? ' &middot; Daily Double' : ''}</span>
         <p class="q">${esc(c.clue || '')}</p><p class="a"><small>Answer</small>${esc(c.response || '')}</p><p class="hstatus">${status}</p></div>`;
     let b = '';
+    if (ph === 'open' || ph === 'answering') h += hostLine(c);
     if (ph === 'reading') b = btn('open', 'Open buzzers now') + btn('reveal', 'Skip and reveal');
-    if (ph === 'open') b = hostLine(c) + btn('reveal', 'Nobody knows, reveal', 'paper full');
-    if (ph === 'answering') b = hostLine(c);
-    if (ph === 'answering' || ph === 'dd-clue') b += btn('judge0', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>', 'jb', 'aria-label="Incorrect"') + btn('judge1', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>', 'jb', 'aria-label="Correct"') + (c.revealed ? '' : btn('reveal', 'Reveal answer on TV', 'line full'));
+    if (ph === 'open') b = btn('reveal', 'Nobody knows, reveal', 'paper full');
+    if ((ph === 'answering' || ph === 'dd-clue') && !c.revealed) b += btn('reveal', 'Reveal answer on TV', 'line full');
+    if (ph === 'answering' || ph === 'dd-clue') b += btn('judge0', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>', 'jb', 'aria-label="Incorrect"') + btn('judge1', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>', 'jb', 'aria-label="Correct"');
     if (ph === 'reveal') b = btn('continue', S.tilesLeft <= 1 ? 'On to Final Jeopardy' : 'Back to the board', 'primary full');
     if (ph === 'dd-wager') b = `<form class="full" id="h-wager" style="display:flex;gap:8px"><input id="h-wager-in" inputmode="numeric" placeholder="Wager" style="flex:1;border-radius:12px;border:0;padding:14px;font-size:18px"><button class="btn primary">Set</button></form>`;
     h += `<div class="hbtns">${b}</div>`;
@@ -445,18 +446,21 @@ function renderHost() {
   } else if (ph === 'over') {
     h = `<div class="card hcard"><p class="hstatus">Game over. ${S.board && S.board.shareCode ? `Board code ${esc(S.board.shareCode)}.` : ''}</p></div><div class="hbtns">${btn('new-game', 'New board', 'primary full')}</div>`;
   }
-  if (ph !== 'generating') h += `<p class="sect">Scores</p><div class="adj">${entityList().map((e) => `<div class="row"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b><button data-adj="${e.id}" data-d="-200" aria-label="Take 200 from ${esc(e.name)}">−</button><button data-adj="${e.id}" data-d="200" aria-label="Give 200 to ${esc(e.name)}">+</button>${isTeams() ? '' : `<button class="x${pendingKick === e.id ? ' sure' : ''}" data-kick="${e.id}" aria-label="Remove ${esc(e.name)}">${pendingKick === e.id ? '?' : '&times;'}</button>`}</div>`).join('') || '<div class="row"><span>No players yet</span></div>'}</div>`;
+  // While a clue is live the screen must fit without scrolling, so scores wait for the board or the reveal.
+  const live = ['reading', 'open', 'answering', 'dd-wager', 'dd-clue'].includes(ph) && !!c;
+  $('stagep').classList.toggle('fit', live);
+  if (ph !== 'generating' && !live) h += `<p class="sect">Scores</p><div class="adj">${entityList().map((e) => `<div class="row"><span>${esc(e.name)}</span><b class="num">${money(e.score)}</b><button data-adj="${e.id}" data-d="-200" aria-label="Take 200 from ${esc(e.name)}">−</button><button data-adj="${e.id}" data-d="200" aria-label="Give 200 to ${esc(e.name)}">+</button>${isTeams() ? '' : `<button class="x${pendingKick === e.id ? ' sure' : ''}" data-kick="${e.id}" aria-label="Remove ${esc(e.name)}">${pendingKick === e.id ? '?' : '&times;'}</button>`}</div>`).join('') || '<div class="row"><span>No players yet</span></div>'}</div>`;
   if (isTeams() || ph === 'generating') h += playersBlock();
   if (!(document.activeElement && document.activeElement.id === 'h-wager-in')) put($('stagep'), h);
 }
 
-// Host: everyone who could answer, buzz order first. Tap a name to make them the one being judged.
+// Host: everyone who could answer, buzz order first. Tap a name to make them the one being judged; tap again to undo.
 function hostLine(c) {
   const q = c.queue || [];
   const outOf = (pid) => c.lockedOut.includes(isTeams() ? (S.players.find((p) => p.id === pid) || {}).team : pid);
   const rest = S.players.filter((p) => !q.includes(p.id)).map((p) => p.id);
   const row = (pid, n) => `<button type="button" class="qrow${pid === c.winner ? ' on' : ''}${outOf(pid) ? ' out' : ''}" data-select="${esc(pid)}" ${outOf(pid) ? 'disabled' : ''}><b>${n || ''}</b><span>${esc(playerName(pid))}</span></button>`;
-  return `<div class="qlist full">${q.map((pid, i) => row(pid, i + 1)).join('')}${rest.map((pid) => row(pid, '')).join('')}</div>`;
+  return `<div class="qlist${S.players.length > 4 ? ' two' : ''}">${q.map((pid, i) => row(pid, i + 1)).join('')}${rest.map((pid) => row(pid, '')).join('')}</div>`;
 }
 
 /* host setup: everything the TV setup screen can do */

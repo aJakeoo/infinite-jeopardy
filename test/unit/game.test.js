@@ -425,6 +425,29 @@ test('buzz line: the host can tap any name, and late buzzes join the line', () =
   assert.equal(G.view(s, 'tv').current.queue.length, 3);
 });
 
+test('buzz line: tapping the answering name again undoes an accidental pick', () => {
+  const s = room();
+  const [a, b] = withPlayers(s, ['Ava', 'Johnny', 'Cy']);
+  start(s);
+  const open = openClue(s, 0, 1);
+  G.buzz(s, a, 100, 0, open + 100);
+  G.tick(s, open + 500);
+  G.select(s, b, open + 1000);
+  assert.equal(s.current.winner, b, 'Johnny tapped by mistake');
+  assert.equal(G.select(s, b, open + 1100).ok, true);
+  assert.equal(s.current.winner, a, 'tapping Johnny again hands it back to Ava');
+  assert.deepEqual(s.current.queue, [a], 'Johnny leaves the line');
+  assert.equal(s.players[b].score, 0);
+  const round = s.current.round || 0;
+  G.select(s, a, open + 1200);
+  assert.equal(s.phase, 'open', 'nobody left in line: buzzers open again');
+  assert.equal(s.current.winner, null);
+  assert.equal(s.current.round, round + 1, 'phones can buzz again');
+  assert.ok(s.current.closesAt >= open + 1200 + 8000 - 1, 'the clock is not already run out');
+  G.tick(s, open + 1300);
+  assert.equal(s.phase, 'open');
+});
+
 test('buzz line: selecting while buzzers are open starts the answer', () => {
   const s = room();
   const [a] = withPlayers(s, ['Ava', 'Ben']);
