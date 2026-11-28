@@ -325,7 +325,11 @@ export class Limiter {
     const dKey = `d:${day}`, iKey = `i:${hour}:${ip}`;
     const [d, i] = await Promise.all([this.ctx.storage.get(dKey), this.ctx.storage.get(iKey)]);
     if ((d || 0) >= dailyMax) return json({ ok: false, err: 'Infinite Jeopardy has made its boards for today. Try again tomorrow, or load a board code.' });
-    if ((i || 0) >= ipMax) return json({ ok: false, err: 'You have made a lot of boards this hour. Take a breather and try again soon.' });
+    // The count is per internet connection, so everyone on the same Wi-Fi shares it; say so, and say when it resets (top of the UTC hour).
+    if ((i || 0) >= ipMax) {
+      const mins = Math.max(1, 60 - new Date().getUTCMinutes());
+      return json({ ok: false, err: `This Wi-Fi network has made ${ipMax} boards this hour, the limit. New boards open again in ${mins} minute${mins === 1 ? '' : 's'}. You can still load a board code.` });
+    }
     await this.ctx.storage.put({ [dKey]: (d || 0) + 1, [iKey]: (i || 0) + 1 });
     if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + 26 * 3600 * 1000);
     return json({ ok: true });
