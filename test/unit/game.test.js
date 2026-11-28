@@ -481,3 +481,29 @@ test('AI path: on the last try, a repeated answer keeps the board instead of fai
   const client2 = { messages: { parse: async () => ({ stop_reason: 'end_turn', parsed_output: leak }) } };
   await assert.rejects(generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: '1800s', size: '6x5' }, { client: client2 }), /had problems/, 'a leaked answer still fails');
 });
+
+test('AI path: a slow first attempt is not followed by another full attempt', async () => {
+  const calls = [];
+  const cut = { messages: { parse: async (req, opts) => { calls.push({ req, opts }); return { stop_reason: 'max_tokens', parsed_output: null }; } } };
+  await assert.rejects(generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: 'x', size: '6x5' }, { client: cut, start: Date.now() - 110_000 }), /problems/);
+  assert.equal(calls.length, 1, 'past the time budget, no second board call');
+  assert.ok(calls[0].opts.timeout <= 90_000 && calls[0].opts.timeout >= 20_000, 'the request only gets the time that is left');
+});
+
+test('AI path: Extreme thinks at medium effort, and clues far off the ladder are rewritten once', async () => {
+  const good = demoBoard('ocean', '6x5');
+  const rated = { ...good, categories: good.categories.map((c) => ({ ...c, clues: c.clues.map((x, r) => ({ ...x, known: [30, 23, 17, 10, 3][r] })) })), final: { ...good.final, known: 2 } };
+  rated.categories[2].clues[4].known = 80; // far too easy for Extreme
+  const calls = [];
+  const client = { messages: { parse: async (req) => {
+    calls.push(req);
+    if (/Replace these clues/.test(req.messages[0].content)) return { stop_reason: 'end_turn', parsed_output: { fixes: [{ id: 0, clue: 'A deep-cut replacement clue about the sea.', response: 'What is a deep cut?' }] } };
+    return { stop_reason: 'end_turn', parsed_output: rated };
+  } } };
+  const b = await generateBoard({ ANTHROPIC_API_KEY: 'x' }, { topic: 'ocean', size: '6x5', tune: { level: 2, styles: ['facts'] } }, { client });
+  assert.equal(calls[0].output_config.effort, 'medium');
+  assert.match(calls[0].messages[0].content, /EXTREME/);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].messages[0].content, /rated 80% known.*about 30%.*harder/);
+  assert.equal(b.categories[2].clues[0].response, 'What is a deep cut?', 'the rewrite lands in the row it was written for');
+});

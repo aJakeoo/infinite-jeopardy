@@ -247,10 +247,14 @@ export async function generateBoard(env, req, deps = {}) {
   const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 240_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
   const FixSchema = z.object({ fixes: z.array(z.object({ id: z.number(), clue: z.string(), response: z.string() })) });
   const MAX_CALLS = 3;
+  // Time budget: a room is waiting. No new full attempt after NEW_CALL_MS, no rewrite after FIX_MS,
+  // and each request may only use what is left of TOTAL_MS (at least 20 s).
+  const t0 = Date.now(), TOTAL_MS = 200_000, NEW_CALL_MS = 100_000, FIX_MS = 130_000;
+  const elapsed = () => Date.now() - (deps.start || t0);
   let calls = 0, feedback = null, cutOff = false, last = null;
   const call = async (params) => {
     calls++;
-    try { return await client.messages.parse({ model: MODEL, system: SYSTEM, ...params }); }
+    try { return await client.messages.parse({ model: MODEL, system: SYSTEM, ...params }, { timeout: Math.min(150_000, Math.max(20_000, TOTAL_MS - elapsed())) }); }
     catch (e) {
       if (e && e.status === 429) throw new UserError('The AI is busy right now. Try again in a minute.');
       if (e && (e.status === 401 || e.status === 403)) throw new UserError('The AI key was rejected. Check the ANTHROPIC_API_KEY secret.');
@@ -260,14 +264,14 @@ export async function generateBoard(env, req, deps = {}) {
   };
   const keep = (v) => ({ ...v.draft, topic, age, band, demo: false });
   const dupOnly = (v) => v && v.draft && v.hard.length && v.hard.every((h) => /same answer as/.test(h));
-  while (calls < MAX_CALLS) {
+  while (calls < MAX_CALLS && (calls === 0 || elapsed() < NEW_CALL_MS)) {
     const res = await call({
       max_tokens: 32000, // Haiku 5.5 thinks by default and thinking counts toward this cap; leave it plenty of room
       // Thinking helps fact quality, but it once ran past the cap on a wordplay-heavy board; if that happens, write straight out.
       ...(cutOff ? { thinking: { type: 'disabled' } } : {}),
       messages: [{ role: 'user', content: userPrompt({ topic, age, size, tune }, feedback) }],
-      // Extreme boards lean on obscure facts, so they get more thinking to keep those facts right.
-      output_config: { effort: cutOff ? 'low' : tune.level === 2 ? 'high' : 'medium', format: zodOutputFormat(Schema) },
+      // Effort 'high' was tried for Extreme: Haiku thought for minutes and the room was left waiting. Medium for every level.
+      output_config: { effort: cutOff ? 'low' : 'medium', format: zodOutputFormat(Schema) },
     });
     if (res && res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
     if (!res || res.stop_reason === 'max_tokens' || !res.parsed_output) {
@@ -279,7 +283,7 @@ export async function generateBoard(env, req, deps = {}) {
     let v = validateBoard(res.parsed_output, size, maxClue, lad);
     if (v.board) {
       // A playable board with a few clues far off their row's difficulty: rewrite just those, once.
-      if (v.tuning.length && v.tuning.length <= 8 && calls < MAX_CALLS) {
+      if (v.tuning.length && v.tuning.length <= 8 && calls < MAX_CALLS && elapsed() < FIX_MS) {
         console.warn(`board call ${calls} off the ladder (${band}, level ${tune.level}): ${v.tuning.map((t) => t.msg).join(' | ')}`);
         const fixed = await repairClues(call, FixSchema, zodOutputFormat, { ...v, fixable: v.tuning }, { topic, age, tune, rows: lad.length });
         const v2 = fixed && validateBoard(fixed, size, maxClue, lad);
@@ -289,7 +293,7 @@ export async function generateBoard(env, req, deps = {}) {
     }
     console.warn(`board call ${calls} needs work (${band}): ${v.hard.join(' | ')}`);
     // A few bad clues: rewrite just those instead of the whole board (a full rewrite tends to make new mistakes).
-    if (v.fixable.length && v.fixable.length === v.hard.length && v.fixable.length <= 12 && calls < MAX_CALLS) {
+    if (v.fixable.length && v.fixable.length === v.hard.length && v.fixable.length <= 12 && calls < MAX_CALLS && elapsed() < FIX_MS) {
       const fixed = await repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune, rows: lad.length });
       if (fixed) {
         const v2 = validateBoard(fixed, size, maxClue, lad);
