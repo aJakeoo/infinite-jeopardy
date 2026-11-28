@@ -506,4 +506,5 @@ test('AI path: Extreme thinks at medium effort, and clues far off the ladder are
   assert.equal(calls.length, 2);
   assert.match(calls[1].messages[0].content, /rated 80% known.*about 30%.*harder/);
   assert.equal(b.categories[2].clues[0].response, 'What is a deep cut?', 'the rewrite lands in the row it was written for');
+  assert.deepEqual({ calls: b.stats.calls, offLadder: b.stats.offLadder, rewritten: b.stats.rewritten, level: b.stats.level }, { calls: 2, offLadder: 1, rewritten: 1, level: 2 });
 });

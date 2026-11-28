@@ -209,7 +209,8 @@ export class Room {
 
   async saveBoard(board) {
     const plain = { title: board.title, topic: board.topic, age: board.age, demo: !!board.demo,
-      categories: board.categories.map((c) => ({ name: c.name, clues: c.clues.map((x) => ({ clue: x.clue, response: x.response })) })), final: board.final };
+      categories: board.categories.map((c) => ({ name: c.name, clues: c.clues.map((x) => ({ clue: x.clue, response: x.response })) })), final: board.final,
+      ...(board.stats ? { stats: board.stats } : {}) };
     for (let i = 0; i < 6; i++) {
       const code = randCode(SHARE_ALPHABET, 6);
       const r = await this.env.VAULT.get(this.env.VAULT.idFromName(code)).fetch('https://vault/put', { method: 'POST', body: JSON.stringify(plain) });

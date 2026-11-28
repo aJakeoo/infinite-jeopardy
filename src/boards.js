@@ -209,7 +209,7 @@ Rules for every board:
 - Difficulty climbs within each category in steady steps, following the difficulty ladder in the request. Clues in the same row are equally hard across categories.
 - Only use well-established facts. If you are not sure a fact is true, use a different clue. No trick questions, no opinions, nothing that changes year to year.
 - Never put the answer, or an obvious form of it, inside the clue.
-- Every response on the board is different.
+- Every response on the board is different, and every answer fits its category name.
 - Clues are short enough for a room to read on a TV; the exact limit for this audience is in the request.
 - Family friendly: no sexual content, slurs, graphic violence or drugs, unless the audience is explicitly adults, and even then keep it party-appropriate.
 - The request describes the audience: its reading level, how hard the easiest and hardest clues should be, and which clue styles to use. Follow it closely. A board that is too hard or too wordy for its audience is a failed board.
@@ -262,7 +262,9 @@ export async function generateBoard(env, req, deps = {}) {
       return null; // a reply that did not fit the schema: treat like a bad attempt
     }
   };
-  const keep = (v) => ({ ...v.draft, topic, age, band, demo: false });
+  const stats = { level: tune.level, calls: 0, offLadder: 0, ms: 0 };
+  const done = (b) => { stats.calls = calls; stats.ms = elapsed(); return { ...b, topic, age, band, demo: false, stats }; };
+  const keep = (v) => done(v.draft);
   const dupOnly = (v) => v && v.draft && v.hard.length && v.hard.every((h) => /same answer as/.test(h));
   while (calls < MAX_CALLS && (calls === 0 || elapsed() < NEW_CALL_MS)) {
     const res = await call({
@@ -282,14 +284,15 @@ export async function generateBoard(env, req, deps = {}) {
     }
     let v = validateBoard(res.parsed_output, size, maxClue, lad);
     if (v.board) {
+      stats.offLadder = v.tuning.length;
       // A playable board with a few clues far off their row's difficulty: rewrite just those, once.
       if (v.tuning.length && v.tuning.length <= 8 && calls < MAX_CALLS && elapsed() < FIX_MS) {
         console.warn(`board call ${calls} off the ladder (${band}, level ${tune.level}): ${v.tuning.map((t) => t.msg).join(' | ')}`);
         const fixed = await repairClues(call, FixSchema, zodOutputFormat, { ...v, fixable: v.tuning }, { topic, age, tune, rows: lad.length });
         const v2 = fixed && validateBoard(fixed, size, maxClue, lad);
-        if (v2 && v2.board) return { ...v2.board, topic, age, band, demo: false };
+        if (v2 && v2.board) { stats.rewritten = v.tuning.length; return done(v2.board); }
       }
-      return { ...v.board, topic, age, band, demo: false };
+      return done(v.board);
     }
     console.warn(`board call ${calls} needs work (${band}): ${v.hard.join(' | ')}`);
     // A few bad clues: rewrite just those instead of the whole board (a full rewrite tends to make new mistakes).
@@ -297,7 +300,7 @@ export async function generateBoard(env, req, deps = {}) {
       const fixed = await repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune, rows: lad.length });
       if (fixed) {
         const v2 = validateBoard(fixed, size, maxClue, lad);
-        if (v2.board) return { ...v2.board, topic, age, band, demo: false };
+        if (v2.board) return done(v2.board);
         console.warn(`repair call ${calls} left (${band}): ${v2.hard.join(' | ')}`);
         v = v2;
       }

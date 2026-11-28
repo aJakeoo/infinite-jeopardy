@@ -145,6 +145,7 @@ export function audiencePrompt(ageText, tune, rows = 5) {
   if (t.level === 2) {
     lines.push('Difficulty: EXTREME. This group asked for super niche deep cuts. Pick narrow, specific categories inside the topic.',
       `Even the first clue in each category should stump a casual fan: it is something a big fan of the topic would know. The last is a deep cut only a true expert or superfan would get.${bandId === 'adults' ? '' : ` The audience is still ${b.ages}: niche for that age, not adult-only facts.`}`,
+      'The ANSWERS themselves must be niche. A famous answer (a hit movie, a household name, a landmark) is not Extreme, however obscure the detail in its clue, because players will guess it. Pick lesser-known works, people, places and things.',
       'Niche never means unsure: use only documented facts you are certain of. Each clue stays fair, with one clear answer.');
   } else {
     lines.push(`Difficulty: the first clue in each category is ${b.easy}; the last is ${b.hard}.`);
@@ -156,7 +157,7 @@ export function audiencePrompt(ageText, tune, rows = 5) {
     ...lad.map((p, i) => `- Row ${i + 1}${i === 0 ? ' (easiest)' : i === rows - 1 ? ' (hardest)' : ''}: about ${p}% of this audience would get it right.`),
     `- Final Jeopardy: about ${Math.max(2, Math.round(lad[rows - 1] * 0.7))}%.`,
     'Climb in steady, even steps. Difficulty comes only from how well known the fact is, never from vague, tricky or misleading wording.',
-    'For every clue, set "known" to your honest estimate of the percent of this audience who would get it right.');
+    'For every clue, set "known" to your honest estimate of the percent of this audience who would get it right. Rate strictly: if the answer is a name most of this audience has heard of, many will guess it from almost any clue, so rate it high.');
   if (t.styles.length) {
     lines.push('Clue styles to use (mix them across the board; every category still stays on the topic):');
     for (const id of t.styles) lines.push(`- ${STYLES[id].prompt}`);
