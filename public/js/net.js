@@ -1,7 +1,7 @@
 // WebSocket connection to a room, with auto-reconnect, request/ack, and server clock sync.
 export class Conn {
-  constructor({ code, role, key, pid, onState, onHello, onStatus, onFatal }) {
-    Object.assign(this, { code, role, key, pid, onState, onHello, onStatus, onFatal });
+  constructor({ code, role, key, pid, onState, onHello, onStatus, onFatal, onMsg }) {
+    Object.assign(this, { code, role, key, pid, onState, onHello, onStatus, onFatal, onMsg });
     this.ws = null; this.rid = 0; this.pending = new Map(); this.offsets = []; this.offset = 0; this.rtt = 0;
     this.retry = 0; this.closed = false; this.status = 'connecting'; this.lastMsg = 0;
     this.connect();
@@ -71,7 +71,8 @@ export class Conn {
     if (m.t === 'hb') return;
     if (m.t === 'hello') { if (!this.offsets.length) this.offset = m.now - Date.now(); this.onHello && this.onHello(m); return; }
     if (m.t === 'state') { this.onState && this.onState(m.s, m.now); return; }
-    if (m.t === 'ack') { const p = this.pending.get(m.rid); if (p) { this.pending.delete(m.rid); p.resolve(m); } }
+    if (m.t === 'ack') { const p = this.pending.get(m.rid); if (p) { this.pending.delete(m.rid); p.resolve(m); } return; }
+    this.onMsg && this.onMsg(m);
   }
   ping() { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ t: 'ping', c: Date.now(), rtt: this.rtt || undefined })); }
   serverNow() { return Date.now() + this.offset; }

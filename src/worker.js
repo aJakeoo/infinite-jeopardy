@@ -121,7 +121,7 @@ export class Room {
       console.error(e);
       res = { ok: false, err: 'Something went wrong on the server.' };
     }
-    if (m.rid) ws.send(JSON.stringify({ t: 'ack', rid: m.rid, ok: !!(res && res.ok !== false), err: res && res.err, reason: res && res.reason }));
+    if (m.rid) ws.send(JSON.stringify({ t: 'ack', rid: m.rid, ok: !!(res && res.ok !== false), err: res && res.err, reason: res && res.reason, key: res && res.key, asked: res && res.asked }));
     this.s.lastActivity = now;
     if (changed) await this.commit();
   }
@@ -146,6 +146,8 @@ export class Room {
         return deny;
       }
       case 'final-answer': return isPlayer ? G.finalAnswer(s, G.entityOf(s, a.pid), m.text, now) : deny;
+      case 'host-claim': return isPlayer ? this.claimHost(a) : { ok: false, err: 'Only players can ask to host.', quiet: true };
+      case 'host-answer': return isHost ? this.answerHost(m) : { ok: false, err: 'Only the host can answer that.', quiet: true };
     }
     if (!ctrl) return deny;
     switch (m.t) {
@@ -167,6 +169,34 @@ export class Room {
       case 'new-game': return G.newGame(s, now);
       default: return { ok: false, err: 'Unknown action.', quiet: true };
     }
+  }
+
+  // A player asks to run the game from their phone. With no host phone connected they get the host key straight away;
+  // otherwise every host phone is asked, and the first answer counts.
+  claimHost(a) {
+    const p = this.s.players[a.pid];
+    if (!p) return { ok: false, err: 'Join the game first.', quiet: true };
+    const hosts = this.ctx.getWebSockets('host').filter((w) => w.readyState === 1);
+    if (!hosts.length) return { ok: true, key: this.keys.hostKey, quiet: true };
+    this.hostAsk = { pid: a.pid, at: Date.now() };
+    const msg = JSON.stringify({ t: 'host-request', pid: a.pid, name: p.name });
+    for (const w of hosts) { try { w.send(msg); } catch { /* closing */ } }
+    return { ok: true, asked: true, quiet: true };
+  }
+
+  answerHost(m) {
+    const ask = this.hostAsk;
+    if (!ask || ask.pid !== m.pid || Date.now() - ask.at > 120_000) return { ok: false, err: 'That request is no longer waiting.', quiet: true };
+    this.hostAsk = null;
+    const yes = !!m.yes;
+    const name = (this.s.players[ask.pid] || {}).name || 'A player';
+    const toPlayer = JSON.stringify({ t: 'host-answer', yes, key: yes ? this.keys.hostKey : null });
+    for (const w of this.ctx.getWebSockets(`p:${ask.pid}`)) { try { w.send(toPlayer); } catch { /* closing */ } }
+    if (yes) {
+      const moved = JSON.stringify({ t: 'host-moved', name });
+      for (const w of this.ctx.getWebSockets('host')) { try { w.send(moved); } catch { /* closing */ } }
+    }
+    return { ok: true, quiet: true };
   }
 
   async generate(m, a, now) {

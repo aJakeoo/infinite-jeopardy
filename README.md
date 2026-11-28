@@ -68,6 +68,7 @@ npm test               # 38 rule and tuning tests
 npm run e2e            # plays full games in Chrome: TV + iPhones + host (needs npm run dev running)
 node test/e2e/host.mjs # the host phone sets up and runs a game, QR scanning, PWA files
 node test/e2e/hostfit.mjs # the host clue screen fits with no scrolling on 5 phone sizes; tap a name twice to undo
+node test/e2e/handoff.mjs # a player becomes the host from the menu; the current host says yes or no
 node test/e2e/live.mjs <url>  # on a deployed site: buzz line with 4 phones and 2 real AI boards
 node test/e2e/probe.mjs <url> kids space  # one real AI board, printed
 ```

@@ -45,7 +45,7 @@ function boot() {
     joinGame(saved.code, saved.name, true);
     return;
   }
-  showJoin();
+  showJoin(params.has('handed') ? 'You handed the game over. Join as a player?' : undefined);
   if (!urlRoom && !$('room').value) return; // nothing typed yet: leave the keyboard down so the Scan button shows
   setTimeout(() => ($('room').value.length === 4 ? $('name') : $('room')).focus(), 250);
 }
@@ -157,6 +157,7 @@ function startConn(code) {
       $('dot').classList.toggle('bad', st !== 'online');
       $('foot-text').textContent = st === 'online' ? `Room ${code}` : st === 'dead' ? 'Disconnected' : 'Reconnecting...';
     },
+    onMsg: onServerMsg,
     onFatal: (msg) => {
       conn = null; S = null; joined = false; joining = false;
       $('join-btn').disabled = false;
@@ -586,6 +587,7 @@ $('menu-btn').addEventListener('click', () => {
     ? `<h3>Host menu</h3><button class="btn paper wide" data-m="new">Start over with a new board</button><button class="btn line wide" data-m="close">Close</button>`
     : `<h3>Menu</h3><p>${esc(me() ? me().name : '')} in room ${esc(S ? S.code : '')}</p>
        <button class="btn paper wide" data-m="rename">Change my name</button>
+       <button class="btn paper wide" data-m="host-ask">Become the host</button>
        <button class="btn bad wide" data-m="leave">Leave the game</button>
        <button class="btn line wide" data-m="close">Close</button>`);
 });
@@ -602,7 +604,45 @@ $('sheet').addEventListener('click', async (e) => {
   }
   if (b.dataset.m === 'rename') { joined = false; showJoin(); $('name').value = me() ? me().name : ''; $('name').focus(); }
   if (b.dataset.m === 'new') fail(await conn.request({ t: 'new-game' }));
+  if (b.dataset.m === 'host-ask') {
+    openSheet(`<h3>Become the host?</h3><p>You will run the game from this phone and stop playing. Your score leaves the board.</p>
+      <button class="btn paper wide" data-m="host-claim">Become the host</button><button class="btn line wide" data-m="close">Cancel</button>`);
+  }
+  if (b.dataset.m === 'host-claim') {
+    const r = fail(await conn.request({ t: 'host-claim' }));
+    if (r && r.ok && r.key) becomeHost(r.key);
+    else if (r && r.ok && r.asked) toast('Asked the host. Waiting for an answer...');
+  }
+  if (b.dataset.m === 'host-yes' || b.dataset.m === 'host-no') fail(await conn.request({ t: 'host-answer', pid: b.dataset.pid, yes: b.dataset.m === 'host-yes' }));
 });
+function openSheet(html) { $('sheet').hidden = false; $('menu-btn').setAttribute('aria-expanded', 'true'); put($('sheet-card'), html); }
+
+/* ---------------- handing the host role to a player ---------------- */
+function onServerMsg(m) {
+  if (m.t === 'host-request' && ROLE === 'host') {
+    sfx.vibrate([40, 30, 40]);
+    openSheet(`<h3>${esc(m.name)} wants to host</h3><p>Hand the game over to their phone? This phone can then join as a player.</p>
+      <button class="btn paper wide" data-m="host-yes" data-pid="${esc(m.pid)}">Hand it over</button><button class="btn line wide" data-m="host-no" data-pid="${esc(m.pid)}">Keep hosting</button>`);
+  }
+  if (m.t === 'host-answer' && ROLE === 'player') {
+    if (m.yes && m.key) becomeHost(m.key);
+    else toast('The host said no.', true);
+  }
+  if (m.t === 'host-moved' && ROLE === 'host') {
+    store.del('ij-host');
+    const code = S ? S.code : (params.get('room') || '');
+    if (conn) { conn.close(); conn = null; }
+    location.replace(`/play?room=${encodeURIComponent(code)}&handed=1`);
+  }
+}
+// Leave the player list, then reopen this page as the host controller.
+async function becomeHost(key) {
+  const code = S ? S.code : '';
+  if (conn) await conn.request({ t: 'leave' }).catch(() => {});
+  store.del('ij-player'); joined = false; joining = false;
+  if (conn) { conn.close(); conn = null; }
+  location.replace(`/play?room=${encodeURIComponent(code)}&role=host&key=${encodeURIComponent(key)}`);
+}
 
 /* ---------------- events ---------------- */
 function handleEvent() {
