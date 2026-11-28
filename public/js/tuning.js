@@ -146,6 +146,7 @@ export function audiencePrompt(ageText, tune, rows = 5) {
     lines.push('Difficulty: EXTREME. This group asked for super niche deep cuts. Pick narrow, specific categories inside the topic.',
       `Even the first clue in each category should stump a casual fan: it is something a big fan of the topic would know. The last is a deep cut only a true expert or superfan would get.${bandId === 'adults' ? '' : ` The audience is still ${b.ages}: niche for that age, not adult-only facts.`}`,
       'The ANSWERS themselves must be niche. A famous answer (a hit movie, a household name, a landmark) is not Extreme, however obscure the detail in its clue, because players will guess it. Pick lesser-known works, people, places and things.',
+      'Row 1 is already hard. Nothing from a typical school lesson and no famous superlative (the largest, longest, highest or first of something well known) belongs anywhere on an Extreme board.',
       'Niche never means unsure: use only documented facts you are certain of. Each clue stays fair, with one clear answer.');
   } else {
     lines.push(`Difficulty: the first clue in each category is ${b.easy}; the last is ${b.hard}.`);
