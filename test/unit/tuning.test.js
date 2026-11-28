@@ -36,13 +36,15 @@ test('the prompt carries the band, level and only the ticked styles', () => {
   const kid = userPrompt({ topic: 'space', age: '7-9', size: '4x4', tune: { level: -1, styles: ['facts', 'describe'] } });
   assert.match(kid, /"Kids" band/);
   assert.match(kid, /under 110 characters/);
-  assert.match(kid, /notch easier/);
+  assert.match(kid, /EASIER/);
   assert.match(kid, /Describe it:/);
   assert.doesNotMatch(kid, /- Before & After:/);
   assert.match(kid, /Do not use these styles: .*Before & After/);
   const adult = userPrompt({ topic: 'space', age: '', size: '6x5', tune: { level: 1, styles: ['beforeafter'] } });
   assert.match(adult, /"Adults" band/);
-  assert.match(adult, /notch harder/);
+  assert.match(adult, /HARDER/);
+  assert.match(adult, /Calibration for adults/);
+  assert.doesNotMatch(kid, /Calibration for adults/);
   assert.match(adult, /- Before & After:/);
   const none = audiencePrompt('', { level: 0, styles: [] });
   assert.match(none.text, /plain, direct clues/);
@@ -79,7 +81,8 @@ test('difficulty ladder: one steady target per row, Extreme far below the rest',
     const l = ladder(lv, 5);
     for (let i = 1; i < l.length; i++) assert.ok(l[i] < l[i - 1], `level ${lv} climbs`);
   }
-  assert.ok(ladder(2, 5)[0] < ladder(1, 5).at(-1) + 15, 'even the easiest Extreme row is hard');
+  assert.ok(ladder(2, 5)[0] < ladder(1, 5)[2], 'even the easiest Extreme row is harder than the middle of Harder');
+  for (let r = 0; r < 5; r++) assert.ok(ladder(-1, 5)[r] > ladder(0, 5)[r] && ladder(0, 5)[r] > ladder(1, 5)[r] && ladder(1, 5)[r] > ladder(2, 5)[r], 'every row is harder at each level');
   assert.equal(cleanTune({ level: 2, styles: [] }, '').level, 2);
   assert.equal(TUNING.LEVELS['2'], 'Extreme');
 });

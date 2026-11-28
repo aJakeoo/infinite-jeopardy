@@ -112,7 +112,7 @@ export const LEVEL_IDS = [-1, 0, 1, 2];
 
 // Percent of the audience who should get each row right, from the first row to the last.
 // Playtesters found boards jumpy (an easy clue next to a brutal one), so every category follows one ladder.
-const LADDER = { '-1': [95, 60], '0': [90, 35], '1': [75, 20], '2': [30, 3] };
+const LADDER = { '-1': [97, 70], '0': [90, 35], '1': [65, 12], '2': [30, 3] }; // widened after a blind test found Easier, Just right and Harder within 2 points
 export function ladder(level, rows = 5) {
   const [a, b] = LADDER[String(level)] || LADDER['0'];
   return Array.from({ length: rows }, (_, i) => Math.round(a + (b - a) * (rows < 2 ? 0 : i / (rows - 1))));
@@ -148,16 +148,25 @@ export function audiencePrompt(ageText, tune, rows = 5) {
       'The ANSWERS themselves must be niche. A famous answer (a hit movie, a household name, a landmark) is not Extreme, however obscure the detail in its clue, because players will guess it. Pick lesser-known works, people, places and things.',
       'Row 1 is already hard. Nothing from a typical school lesson and no famous superlative (the largest, longest, highest or first of something well known) belongs anywhere on an Extreme board.',
       'Niche never means unsure: use only documented facts you are certain of. Each clue stays fair, with one clear answer.');
+  } else if (t.level === -1) {
+    lines.push('Difficulty: EASIER. This group wants a relaxed board where nearly every clue gets answered.',
+      `Row 1 is something everyone in the room knows instantly. The last row is ${b.easy}: not trivia-buff material.`,
+      'Use famous answers and direct clues that point straight at them. No obscure names, and no exact years or numbers unless they are iconic.');
+  } else if (t.level === 1) {
+    lines.push('Difficulty: HARDER. This group knows its trivia and wants a challenge.',
+      `Row 1 is already past general knowledge: ${b.hard}. The last row is something only a quiz champion or a real expert in the topic${bandId === 'adults' ? '' : ` (aged ${b.ages})`} would know.`,
+      'No gimmes anywhere: skip the most famous answer in each category (the biggest, the first, the household name) and go one level deeper. Still fair, still well documented.');
   } else {
     lines.push(`Difficulty: the first clue in each category is ${b.easy}; the last is ${b.hard}.`);
-    if (t.level === -1) lines.push('Difficulty adjustment: make the whole board a clear notch easier than that.');
-    if (t.level === 1) lines.push('Difficulty adjustment: make the whole board a clear notch harder than that, still fair.');
   }
   const lad = ladder(t.level, rows);
   lines.push('Difficulty ladder. Every category follows it, so clues in the same row feel equally hard across the whole board:',
     ...lad.map((p, i) => `- Row ${i + 1}${i === 0 ? ' (easiest)' : i === rows - 1 ? ' (hardest)' : ''}: about ${p}% of this audience would get it right.`),
     `- Final Jeopardy: about ${Math.max(2, Math.round(lad[rows - 1] * 0.7))}%.`,
     'Climb in steady, even steps. Difficulty comes only from how well known the fact is, never from vague, tricky or misleading wording.',
+    ...(bandId === 'adults' ? ['Calibration for adults (only to judge difficulty; never use these as clues): about 95% know how many legs a spider has; about 75% know who wrote Romeo and Juliet; about 50% know the capital of Canada; about 25% know the chemical symbol for tungsten; about 5% know the year the Peace of Westphalia was signed.'] : []),
+    'Exact years, dates and counts are hard for most people. Only iconic ones (like the 1969 Moon landing) belong in early rows; other years and numbers go in the late rows or not at all.',
+    'When the board is done, look across each row: if one clue is much easier or harder than the rest of its row, rewrite it before you answer.',
     'For every clue, set "known" to your honest estimate of the percent of this audience who would get it right. Rate strictly: if the answer is a name most of this audience has heard of, many will guess it from almost any clue, so rate it high.');
   if (t.styles.length) {
     lines.push('Clue styles to use (mix them across the board; every category still stays on the topic):');
