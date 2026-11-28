@@ -321,7 +321,7 @@ export class Limiter {
     const day = new Date().toISOString().slice(0, 10);
     const hour = new Date().toISOString().slice(0, 13);
     const dailyMax = Number(this.env.DAILY_BOARD_LIMIT || 100);
-    const ipMax = Number(this.env.HOURLY_BOARDS_PER_IP || 12);
+    const ipMax = Number(this.env.HOURLY_BOARDS_PER_IP || 20);
     const dKey = `d:${day}`, iKey = `i:${hour}:${ip}`;
     const [d, i] = await Promise.all([this.ctx.storage.get(dKey), this.ctx.storage.get(iKey)]);
     if ((d || 0) >= dailyMax) return json({ ok: false, err: 'Infinite Jeopardy has made its boards for today. Try again tomorrow, or load a board code.' });

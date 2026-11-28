@@ -22,7 +22,7 @@
   "vars": {
     // Spending guards for the AI. Raise them once you have watched a few days of use.
     "DAILY_BOARD_LIMIT": "100",
-    "HOURLY_BOARDS_PER_IP": "12"
+    "HOURLY_BOARDS_PER_IP": "20"
   },
   "observability": { "enabled": true }
   // ANTHROPIC_API_KEY is a secret: `npx wrangler secret put ANTHROPIC_API_KEY`

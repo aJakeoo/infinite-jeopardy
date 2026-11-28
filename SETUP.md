@@ -32,7 +32,7 @@ Do the steps in order. Every command runs in PowerShell from the `infinite-jeopa
 6. Reload the site. The "No AI key yet" note on the setup screen disappears and any topic works.
 
 Extra guards are built in and can be changed in `wrangler.jsonc`: `DAILY_BOARD_LIMIT` (100 boards a day for the
-whole site) and `HOURLY_BOARDS_PER_IP` (12 an hour per network). Redeploy after changing them.
+whole site) and `HOURLY_BOARDS_PER_IP` (20 an hour per network). Redeploy after changing them.
 
 ## 3. Put it on infinite-jeopardy.jakejuip.xyz
 
