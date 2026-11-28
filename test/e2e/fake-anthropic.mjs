@@ -22,7 +22,7 @@ http.createServer((req, res) => {
     }
     const size = /Categories: 4/.test(JSON.stringify(j.messages)) ? '4x4' : '6x5';
     const b = demoBoard('ocean', size);
-    const out = { title: 'Fake AI Ocean', categories: b.categories, final: b.final };
+    const out = { title: 'Fake AI Ocean', categories: b.categories.map((c) => ({ ...c, clues: c.clues.map((x, r) => ({ ...x, known: 90 - r * 12 })) })), final: { ...b.final, known: 20 } };
     // The first request ever gets a leaked answer so the retry-with-feedback path runs.
     if (n === 1) out.categories[0].clues[0].clue = 'An octopus has eight arms and can squirt ink.';
     setTimeout(() => {

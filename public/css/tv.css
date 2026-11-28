@@ -52,7 +52,8 @@
 .setup:has(.tune[open]) { top: 5%; padding-top: 1.6em; padding-bottom: 1.4em; gap: .8em; }
 .setup:has(.tune[open]) h2 { font-size: 2em; }
 .age-row { align-items: end; }
-.age-row > .field:first-child { flex: 1 1 14em; }
+.age-row > .field:first-child { flex: 1 1 10em; }
+#level-seg button { padding: .5em .8em; } /* four levels still sit beside Ages */
 .ages { position: relative; }
 .dd-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: .8em; border: 2px solid rgba(31, 58, 92, .22); background: var(--paper-2); border-radius: .7em; padding: .7em .9em; font-size: 1.15em; color: var(--ink); text-align: left; }
 .dd-btn:hover { border-color: rgba(31, 58, 92, .4); }

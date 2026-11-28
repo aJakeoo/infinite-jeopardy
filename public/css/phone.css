@@ -195,6 +195,8 @@ body.host .stagep.fit { overflow: visible; gap: 10px; padding-bottom: 4px; } /* 
 .hseg { display: flex; background: rgba(31, 58, 92, .08); border-radius: 999px; padding: 3px; gap: 2px; }
 .hseg button { flex: 1; border: 0; background: none; border-radius: 999px; padding: 10px 6px; font-weight: 600; font-size: 15px; color: var(--ink); }
 .hseg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+#hs-level button { white-space: nowrap; padding: 10px 2px; }
+@media (max-width: 360px) { #hs-level button { font-size: 13px; letter-spacing: -.01em; } }
 .htune summary { cursor: pointer; list-style: none; display: block; margin-bottom: 8px; }
 .htune summary::-webkit-details-marker { display: none; }
 .htune summary::after { content: ' +'; }

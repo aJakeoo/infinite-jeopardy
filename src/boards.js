@@ -1,6 +1,6 @@
 // Board validation, demo boards, and AI board generation (Claude Haiku 5.5).
 import { SIZES, LIMITS } from './game.js';
-import { audiencePrompt, BANDS, bandFor, cleanTune } from '../public/js/tuning.js';
+import { audiencePrompt, BANDS, bandFor, cleanTune, ladder as ladderFor } from '../public/js/tuning.js';
 
 export const MODEL = 'claude-haiku-5-5';
 
@@ -24,8 +24,13 @@ function asQuestion(response) {
   return `What is ${r.replace(/[?.!]+$/, '')}?`;
 }
 
+const pct = (k) => (typeof k === 'number' && Number.isFinite(k) ? Math.min(100, Math.max(0, k)) : null);
+
 // Normalises a board and reports problems. Hard errors make the board unusable.
-export function validateBoard(raw, size, maxClue = 200) {
+// With a ladder (target percent known per row), each category is put in order of how well known
+// its clues are, and clues far off their row's target come back in `tuning` for a rewrite.
+export function validateBoard(raw, size, maxClue = 200, ladder = null) {
+  const tuning = [];
   const { cols, rows } = SIZES[size] || SIZES['6x5'];
   const hard = [], soft = [], fixable = []; // fixable: problems tied to one clue, which a targeted rewrite can fix
   const flag = (c, r, msg) => { hard.push(msg); fixable.push({ c, r, msg }); };
@@ -34,11 +39,23 @@ export function validateBoard(raw, size, maxClue = 200) {
   const categories = raw.categories.slice(0, cols).map((cat, ci) => {
     const clues = Array.isArray(cat && cat.clues) ? cat.clues : [];
     if (clues.length < rows) hard.push(`Category ${ci + 1} has ${clues.length} clues, needs ${rows}.`);
+    let list = clues.slice(0, rows).map((cl, r) => ({ cl, k: pct(cl && cl.known), r }));
+    if (ladder) {
+      // unrated clues (e.g. a repaired one) count as right on target for the row they sit in
+      list.forEach((x) => { if (x.k == null) x.k = ladder[x.r]; });
+      list = list.slice().sort((a, b) => b.k - a.k || a.r - b.r);
+    }
     return {
       name: clean(cat && cat.name, 40) || `Category ${ci + 1}`,
-      clues: clues.slice(0, rows).map((cl) => ({ clue: clean(cl && cl.clue, 240), response: asQuestion(cl && cl.response) })),
+      known: list.map((x) => x.k),
+      clues: list.map(({ cl }) => ({ clue: clean(cl && cl.clue, 240), response: asQuestion(cl && cl.response) })),
     };
   });
+  if (ladder) categories.forEach((cat, ci) => cat.known.forEach((k, r) => {
+    const want = ladder[r];
+    if (want != null && Math.abs(k - want) > 25) tuning.push({ c: ci, r, msg: `${cat.name} #${r + 1}: rated ${Math.round(k)}% known, but this row should be about ${want}%. Write a ${k > want ? 'harder' : 'easier'} clue that about ${want}% of this audience would get.` });
+  }));
+  categories.forEach((cat) => delete cat.known);
   const seenCats = new Set(), seenAns = new Map();
   categories.forEach((cat, ci) => {
     const k = cat.name.toLowerCase();
@@ -65,7 +82,7 @@ export function validateBoard(raw, size, maxClue = 200) {
     if (core.length >= 4 && final.clue.toLowerCase().includes(core)) flag(-1, -1, 'Final: the clue gives away the answer.');
   } else soft.push('No Final Jeopardy clue.');
   const board = { title: clean(raw.title, 60), categories, final };
-  return { board: hard.length ? null : board, hard, soft, fixable, draft: board };
+  return { board: hard.length ? null : board, hard, soft, fixable, tuning, draft: board };
 }
 
 /* ---------------- demo boards (used when no AI key is configured) ---------------- */
@@ -189,7 +206,7 @@ const SYSTEM = `You write boards for Infinite Jeopardy, a Jeopardy-style party g
 Rules for every board:
 - Exactly the number of categories and clues asked for. Category names are short (2 to 4 words, under 28 characters), distinct from each other, and playful but clear.
 - Each clue is a statement that points to exactly one answer. Each response is phrased as a question: "What is ...?" or "Who is ...?" Keep responses short (1 to 5 words) so they can be judged out loud.
-- Difficulty climbs within each category: the first clue is easy for the audience, the last is hard but fair.
+- Difficulty climbs within each category in steady steps, following the difficulty ladder in the request. Clues in the same row are equally hard across categories.
 - Only use well-established facts. If you are not sure a fact is true, use a different clue. No trick questions, no opinions, nothing that changes year to year.
 - Never put the answer, or an obvious form of it, inside the clue.
 - Every response on the board is different.
@@ -200,7 +217,7 @@ Rules for every board:
 
 export function userPrompt({ topic, age, size, tune }, feedback) {
   const { cols, rows } = SIZES[size] || SIZES['6x5'];
-  const aud = audiencePrompt(age, tune);
+  const aud = audiencePrompt(age, tune, rows);
   let p = `Make a board about: ${topic}\n\n${aud.text}\n\nCategories: ${cols}\nClues per category: ${rows} (easiest first)\nAlso write one Final Jeopardy clue.\nGive the board a short title (under 40 characters).`;
   if (feedback && feedback.length) p += `\n\nYour last attempt had these problems. Fix every one:\n- ${feedback.slice(0, 12).join('\n- ')}`;
   return p;
@@ -213,6 +230,7 @@ export async function generateBoard(env, req, deps = {}) {
   const tune = cleanTune(req.tune, age);
   const band = bandFor(age);
   const maxClue = BANDS[band].maxClue;
+  const lad = ladderFor(tune.level, (SIZES[size] || SIZES['6x5']).rows);
   if (!topic) throw new UserError('Type what the board should be about, or roll the dice.');
   if (!env.ANTHROPIC_API_KEY) {
     const b = demoBoard(topic, size);
@@ -223,8 +241,8 @@ export async function generateBoard(env, req, deps = {}) {
   const { z } = await import('zod');
   const Schema = z.object({
     title: z.string(),
-    categories: z.array(z.object({ name: z.string(), clues: z.array(z.object({ clue: z.string(), response: z.string() })) })),
-    final: z.object({ category: z.string(), clue: z.string(), response: z.string() }),
+    categories: z.array(z.object({ name: z.string(), clues: z.array(z.object({ clue: z.string(), response: z.string(), known: z.number() })) })),
+    final: z.object({ category: z.string(), clue: z.string(), response: z.string(), known: z.number() }),
   });
   const client = deps.client || new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, timeout: 240_000, maxRetries: 1, ...(env.ANTHROPIC_BASE_URL ? { baseURL: env.ANTHROPIC_BASE_URL } : {}) });
   const FixSchema = z.object({ fixes: z.array(z.object({ id: z.number(), clue: z.string(), response: z.string() })) });
@@ -248,7 +266,8 @@ export async function generateBoard(env, req, deps = {}) {
       // Thinking helps fact quality, but it once ran past the cap on a wordplay-heavy board; if that happens, write straight out.
       ...(cutOff ? { thinking: { type: 'disabled' } } : {}),
       messages: [{ role: 'user', content: userPrompt({ topic, age, size, tune }, feedback) }],
-      output_config: { effort: cutOff ? 'low' : 'medium', format: zodOutputFormat(Schema) },
+      // Extreme boards lean on obscure facts, so they get more thinking to keep those facts right.
+      output_config: { effort: cutOff ? 'low' : tune.level === 2 ? 'high' : 'medium', format: zodOutputFormat(Schema) },
     });
     if (res && res.stop_reason === 'refusal') throw new UserError('The AI would not make a board about that. Try a different topic.');
     if (!res || res.stop_reason === 'max_tokens' || !res.parsed_output) {
@@ -257,14 +276,23 @@ export async function generateBoard(env, req, deps = {}) {
       feedback = ['The answer was cut off or was not valid JSON. Keep clues shorter.'];
       continue;
     }
-    let v = validateBoard(res.parsed_output, size, maxClue);
-    if (v.board) return { ...v.board, topic, age, band, demo: false };
+    let v = validateBoard(res.parsed_output, size, maxClue, lad);
+    if (v.board) {
+      // A playable board with a few clues far off their row's difficulty: rewrite just those, once.
+      if (v.tuning.length && v.tuning.length <= 8 && calls < MAX_CALLS) {
+        console.warn(`board call ${calls} off the ladder (${band}, level ${tune.level}): ${v.tuning.map((t) => t.msg).join(' | ')}`);
+        const fixed = await repairClues(call, FixSchema, zodOutputFormat, { ...v, fixable: v.tuning }, { topic, age, tune, rows: lad.length });
+        const v2 = fixed && validateBoard(fixed, size, maxClue, lad);
+        if (v2 && v2.board) return { ...v2.board, topic, age, band, demo: false };
+      }
+      return { ...v.board, topic, age, band, demo: false };
+    }
     console.warn(`board call ${calls} needs work (${band}): ${v.hard.join(' | ')}`);
     // A few bad clues: rewrite just those instead of the whole board (a full rewrite tends to make new mistakes).
     if (v.fixable.length && v.fixable.length === v.hard.length && v.fixable.length <= 12 && calls < MAX_CALLS) {
-      const fixed = await repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune });
+      const fixed = await repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune, rows: lad.length });
       if (fixed) {
-        const v2 = validateBoard(fixed, size, maxClue);
+        const v2 = validateBoard(fixed, size, maxClue, lad);
         if (v2.board) return { ...v2.board, topic, age, band, demo: false };
         console.warn(`repair call ${calls} left (${band}): ${v2.hard.join(' | ')}`);
         v = v2;
@@ -279,16 +307,16 @@ export async function generateBoard(env, req, deps = {}) {
 }
 
 // Rewrites only the clues the checker flagged, keeping the rest of the board.
-async function repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune }) {
+async function repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune, rows }) {
   const b = structuredClone(v.draft);
   const items = v.fixable.map((f, id) => {
     const cat = f.c < 0 ? null : b.categories[f.c];
     const cl = f.c < 0 ? b.final : cat.clues[f.r];
-    return { id, f, text: `[${id}] ${f.c < 0 ? `Final Jeopardy (${b.final.category})` : `${cat.name}, $${(f.r + 1) * 200}`}. Problem: ${f.msg}\n    Old clue: ${cl.clue}\n    Old response: ${cl.response}` };
+    return { id, f, text: `[${id}] ${f.c < 0 ? `Final Jeopardy (${b.final.category})` : `${cat.name}, row ${f.r + 1}`}. Problem: ${f.msg}\n    Old clue: ${cl.clue}\n    Old response: ${cl.response}` };
   });
   const taken = new Set();
   b.categories.forEach((c) => c.clues.forEach((x) => taken.add(coreAnswer(x.response))));
-  const prompt = `Replace these clues on a board about: ${topic}\n\n${audiencePrompt(age, tune).text}\n\nFor each one, write a new clue and response for the same category and the same difficulty. The clue must never contain the answer or a form of it. Every new response must be different from all of these responses already on the board: ${[...taken].join('; ')}.\n\n${items.map((i) => i.text).join('\n')}`;
+  const prompt = `Replace these clues on a board about: ${topic}\n\n${audiencePrompt(age, tune, rows).text}\n\nFor each one, write a new clue and response for the same category, at the difficulty the problem names (otherwise the same difficulty). The clue must never contain the answer or a form of it. Every new response must be different from all of these responses already on the board: ${[...taken].join('; ')}.\n\n${items.map((i) => i.text).join('\n')}`;
   const res = await call({ max_tokens: 16000, messages: [{ role: 'user', content: prompt }], output_config: { effort: 'low', format: zodOutputFormat(FixSchema) } });
   if (!res || !res.parsed_output || !Array.isArray(res.parsed_output.fixes)) return null;
   for (const fx of res.parsed_output.fixes) {

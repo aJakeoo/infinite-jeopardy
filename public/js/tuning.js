@@ -107,7 +107,16 @@ export const STYLES = {
 };
 export const STYLE_IDS = Object.keys(STYLES);
 
-export const LEVELS = { '-1': 'Easier', '0': 'Just right', '1': 'Harder' };
+export const LEVELS = { '-1': 'Easier', '0': 'Just right', '1': 'Harder', '2': 'Extreme' };
+export const LEVEL_IDS = [-1, 0, 1, 2];
+
+// Percent of the audience who should get each row right, from the first row to the last.
+// Playtesters found boards jumpy (an easy clue next to a brutal one), so every category follows one ladder.
+const LADDER = { '-1': [95, 60], '0': [90, 35], '1': [75, 20], '2': [30, 3] };
+export function ladder(level, rows = 5) {
+  const [a, b] = LADDER[String(level)] || LADDER['0'];
+  return Array.from({ length: rows }, (_, i) => Math.round(a + (b - a) * (rows < 2 ? 0 : i / (rows - 1))));
+}
 
 export function defaultTune(ageText) {
   const band = bandFor(ageText);
@@ -118,13 +127,13 @@ export function defaultTune(ageText) {
 export function cleanTune(t, ageText) {
   const d = defaultTune(ageText);
   if (!t || typeof t !== 'object') return d;
-  const level = [-1, 0, 1].includes(Number(t.level)) ? Number(t.level) : 0;
+  const level = LEVEL_IDS.includes(Number(t.level)) ? Number(t.level) : 0;
   const styles = Array.isArray(t.styles) ? STYLE_IDS.filter((id) => t.styles.includes(id)) : d.styles;
   return { level, styles };
 }
 
 // The audience block of the AI prompt.
-export function audiencePrompt(ageText, tune) {
+export function audiencePrompt(ageText, tune, rows = 5) {
   const bandId = bandFor(ageText);
   const b = BANDS[bandId];
   const t = cleanTune(tune, ageText);
@@ -132,10 +141,22 @@ export function audiencePrompt(ageText, tune) {
     `Audience: ${ageText ? `ages ${ageText}` : 'not given, so a general adult audience'} (the "${b.label}" band, ${b.ages}).`,
     `Reading level: ${b.reading}`,
     `Clue length: every clue under ${b.maxClue} characters.`,
-    `Difficulty: the first clue in each category is ${b.easy}; the last is ${b.hard}.`,
   ];
-  if (t.level === -1) lines.push('Difficulty adjustment: make the whole board a clear notch easier than that.');
-  if (t.level === 1) lines.push('Difficulty adjustment: make the whole board a clear notch harder than that, still fair.');
+  if (t.level === 2) {
+    lines.push('Difficulty: EXTREME. This group asked for super niche deep cuts. Pick narrow, specific categories inside the topic.',
+      `Even the first clue in each category should stump a casual fan: it is something a big fan of the topic would know. The last is a deep cut only a true expert or superfan would get.${bandId === 'adults' ? '' : ` The audience is still ${b.ages}: niche for that age, not adult-only facts.`}`,
+      'Niche never means unsure: use only documented facts you are certain of. Each clue stays fair, with one clear answer.');
+  } else {
+    lines.push(`Difficulty: the first clue in each category is ${b.easy}; the last is ${b.hard}.`);
+    if (t.level === -1) lines.push('Difficulty adjustment: make the whole board a clear notch easier than that.');
+    if (t.level === 1) lines.push('Difficulty adjustment: make the whole board a clear notch harder than that, still fair.');
+  }
+  const lad = ladder(t.level, rows);
+  lines.push('Difficulty ladder. Every category follows it, so clues in the same row feel equally hard across the whole board:',
+    ...lad.map((p, i) => `- Row ${i + 1}${i === 0 ? ' (easiest)' : i === rows - 1 ? ' (hardest)' : ''}: about ${p}% of this audience would get it right.`),
+    `- Final Jeopardy: about ${Math.max(2, Math.round(lad[rows - 1] * 0.7))}%.`,
+    'Climb in steady, even steps. Difficulty comes only from how well known the fact is, never from vague, tricky or misleading wording.',
+    'For every clue, set "known" to your honest estimate of the percent of this audience who would get it right.');
   if (t.styles.length) {
     lines.push('Clue styles to use (mix them across the board; every category still stays on the topic):');
     for (const id of t.styles) lines.push(`- ${STYLES[id].prompt}`);
@@ -144,7 +165,7 @@ export function audiencePrompt(ageText, tune) {
   } else {
     lines.push('Clue styles: use plain, direct clues.');
   }
-  return { text: lines.join('\n'), band: bandId, maxClue: b.maxClue, tune: t };
+  return { text: lines.join('\n'), band: bandId, maxClue: b.maxClue, tune: t, ladder: ladder(t.level, rows) };
 }
 
 export function tuneSummary(ageText, tune) {
