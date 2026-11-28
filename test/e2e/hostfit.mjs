@@ -18,10 +18,13 @@ const fits = (host) => host.evaluate(() => {
   const st = document.getElementById('stagep');
   const vh = innerHeight;
   const inView = (sel) => [...document.querySelectorAll(sel)].every((el) => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= vh + 1; });
-  return { pageScroll: document.scrollingElement.scrollHeight <= vh + 1, stageScroll: st.scrollHeight <= st.clientHeight + 1, buttons: inView('.hbtns .btn'), names: inView('.qrow') };
+  const ql = document.querySelector('.qlist');
+  return { listFits: !ql || ql.scrollHeight <= ql.clientHeight + 1, pageScroll: document.scrollingElement.scrollHeight <= vh + 1, stageScroll: st.scrollHeight <= st.clientHeight + 1, buttons: inView('.hbtns .btn'), names: inView('.qrow') };
 });
 
-for (const [w, h, count] of [[320, 568, 6], [375, 667, 4], [375, 667, 8], [390, 844, 8], [430, 932, 12]]) {
+// SIZES=320x568,375x667 limits the run (each size makes a board, which costs a little on a live site)
+const only = (process.env.SIZES || '').split(',').filter(Boolean);
+for (const [w, h, count] of [[320, 568, 6], [375, 667, 4], [375, 667, 8], [390, 844, 8], [430, 932, 12]].filter(([w, h]) => !only.length || only.includes(w + 'x' + h))) {
   const tv = await page({ viewport: { width: 1600, height: 900 } });
   await tv.goto(BASE + '/');
   await tv.click('#start');
@@ -56,7 +59,7 @@ for (const [w, h, count] of [[320, 568, 6], [375, 667, 4], [375, 667, 8], [390, 
   const f = await fits(host);
   ok(`${tag}: no page scroll`, f.pageScroll && f.stageScroll, JSON.stringify(f));
   ok(`${tag}: check, X and reveal are on screen`, f.buttons, JSON.stringify(f));
-  ok(`${tag}: every name is on screen`, f.names, JSON.stringify(f));
+  ok(`${tag}: every name is on screen, none cut off`, f.names && f.listFits, JSON.stringify(f));
   await host.screenshot({ path: `test/e2e/out/hostfit-${w}x${h}-${count}.png` });
 
   if (count === 4 && w === 375) {

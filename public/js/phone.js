@@ -426,11 +426,11 @@ function renderHost() {
     if (ph === 'open' || ph === 'answering') h += hostLine(c);
     if (ph === 'reading') b = btn('open', 'Open buzzers now') + btn('reveal', 'Skip and reveal');
     if (ph === 'open') b = btn('reveal', 'Nobody knows, reveal', 'paper full');
-    if ((ph === 'answering' || ph === 'dd-clue') && !c.revealed) b += btn('reveal', 'Reveal answer on TV', 'line full');
-    if (ph === 'answering' || ph === 'dd-clue') b += btn('judge0', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>', 'jb', 'aria-label="Incorrect"') + btn('judge1', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>', 'jb', 'aria-label="Correct"');
+    const judging = ph === 'answering' || ph === 'dd-clue';
+    if (judging) b += btn('judge0', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>', 'jb', 'aria-label="Incorrect"') + (c.revealed ? '' : btn('reveal', 'Reveal', 'line mid', 'aria-label="Reveal answer on TV"')) + btn('judge1', '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11"/></svg>', 'jb', 'aria-label="Correct"');
     if (ph === 'reveal') b = btn('continue', S.tilesLeft <= 1 ? 'On to Final Jeopardy' : 'Back to the board', 'primary full');
     if (ph === 'dd-wager') b = `<form class="full" id="h-wager" style="display:flex;gap:8px"><input id="h-wager-in" inputmode="numeric" placeholder="Wager" style="flex:1;border-radius:12px;border:0;padding:14px;font-size:18px"><button class="btn primary">Set</button></form>`;
-    h += `<div class="hbtns">${b}</div>`;
+    h += `<div class="hbtns${judging ? (c.revealed ? '' : ' judge3') : ''}">${b}</div>`;
   } else if (ph.startsWith('final')) {
     const f = S.final;
     h = `<div class="card hcard"><span class="cat">Final Jeopardy &middot; ${esc(f.category)}</span><p class="q">${esc(f.clue || '')}</p><p class="a"><small>Answer</small>${esc(f.response || '')}</p></div>`;
