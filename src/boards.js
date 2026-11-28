@@ -262,7 +262,7 @@ export async function generateBoard(env, req, deps = {}) {
       return null; // a reply that did not fit the schema: treat like a bad attempt
     }
   };
-  const stats = { level: tune.level, calls: 0, offLadder: 0, ms: 0 };
+  const stats = { level: tune.level, calls: 0, offLadder: 0, ms: 0, notes: [] }; // notes: why each extra call happened
   const done = (b) => { stats.calls = calls; stats.ms = elapsed(); return { ...b, topic, age, band, demo: false, stats }; };
   const keep = (v) => done(v.draft);
   const dupOnly = (v) => v && v.draft && v.hard.length && v.hard.every((h) => /same answer as/.test(h));
@@ -279,6 +279,7 @@ export async function generateBoard(env, req, deps = {}) {
     if (!res || res.stop_reason === 'max_tokens' || !res.parsed_output) {
       console.warn(`board call ${calls}: stop_reason=${res && res.stop_reason}, parsed=${!!(res && res.parsed_output)}`);
       cutOff = cutOff || !!(res && res.stop_reason === 'max_tokens');
+      stats.notes.push(`call ${calls}: ${res ? (res.stop_reason === 'max_tokens' ? 'cut off' : 'did not fit the format') : 'no reply'}`);
       feedback = ['The answer was cut off or was not valid JSON. Keep clues shorter.'];
       continue;
     }
@@ -295,6 +296,7 @@ export async function generateBoard(env, req, deps = {}) {
       return done(v.board);
     }
     console.warn(`board call ${calls} needs work (${band}): ${v.hard.join(' | ')}`);
+    stats.notes.push(`call ${calls}: ${v.hard.length} problem${v.hard.length === 1 ? '' : 's'}: ${v.hard.slice(0, 3).join(' | ').slice(0, 300)}`);
     // A few bad clues: rewrite just those instead of the whole board (a full rewrite tends to make new mistakes).
     if (v.fixable.length && v.fixable.length === v.hard.length && v.fixable.length <= 12 && calls < MAX_CALLS && elapsed() < FIX_MS) {
       const fixed = await repairClues(call, FixSchema, zodOutputFormat, v, { topic, age, tune, rows: lad.length });
